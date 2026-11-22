@@ -40,6 +40,7 @@ export const INVOCATIONS = [
   invocation('models', [jsonParameter('provider')]),
   invocation('transcript', [jsonParameter('provider'), jsonParameter('sessionId')]),
   invocation('startTurn', [jsonParameter('provider'), jsonParameter('request')]),
+  invocation('steerTurn', [jsonParameter('turnId'), jsonParameter('request')]),
   invocation('pollTurn', [jsonParameter('turnId'), jsonParameter('afterSeq')]),
   invocation('cancelTurn', [jsonParameter('turnId')]),
   invocation('answerApproval', [jsonParameter('turnId'), jsonParameter('requestId'), jsonParameter('decision')]),

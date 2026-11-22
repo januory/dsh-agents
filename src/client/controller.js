@@ -264,11 +264,35 @@ export class AgentCliController {
   }
 
   /**
-   * Send a message. `sessionId` undefined starts a new CLI session in `cwd`.
+   * Send a message. A live turn takes it as steering input; otherwise
+   * `sessionId` undefined starts a new CLI session in `cwd`.
    */
-  async send(provider, { sessionId, cwd, text, options, images }) {
+  async send(provider, request) {
     const state = this.transcript.getSnapshot()
-    if (state.sending || (state.turn !== null && isLive(state.turn.status))) return { ok: false, error: 'busy' }
+    if (state.sending) return { ok: false, error: 'busy' }
+    if (this.turnId !== undefined && state.turn !== null && isLive(state.turn.status)) {
+      const answer = await this.#steer(request)
+      if (answer.ok || answer.code !== 'not-live') return answer
+    }
+    return this.#startTurn(provider, request)
+  }
+
+  async #steer({ text, images }) {
+    const turnId = this.turnId
+    this.transcript.update(d => {
+      d.sending = true
+      d.error = null
+    })
+    const answer = await this.call('steerTurn', turnId, { text, images })
+    if (this.disposed) return answer
+    this.transcript.update(d => { d.sending = false })
+    if (!answer.ok && answer.code !== 'not-live') this.transcript.update(d => { d.error = answer.error })
+    return answer
+  }
+
+  async #startTurn(provider, { sessionId, cwd, text, options, images }) {
+    const state = this.transcript.getSnapshot()
+    if (state.sending) return { ok: false, error: 'busy' }
     const workingDir = cwd ?? state.session?.cwd
     if (!workingDir) return { ok: false, error: 'no-cwd' }
     this.transcript.update(d => {

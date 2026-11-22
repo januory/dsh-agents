@@ -39,6 +39,7 @@
  * @property {(result: { status: 'done'|'error'|'cancelled', error?: string, usage?: object }) => void} finish
  *
  * @typedef {object} TurnHandle
+ * @property {(request: TurnRequest) => void | Promise<void>} [steer] - feed a message into the running turn; throw with code 'not-live' when it ended
  * @property {() => void} cancel
  * @property {(requestId: string, decision: string) => void} answer
  * @property {() => void} dispose

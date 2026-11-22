@@ -217,6 +217,10 @@ export function createClaudeProvider(config) {
       const live = new ClaudeLive(sink, { turnKey })
       live.start(request.text, request.images)
       const approvals = new Map()
+      // Messages written but not yet replayed by the CLI: a result arriving
+      // while one is still queued means the CLI will run it as another turn.
+      const queued = []
+      const usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, durationMs: 0 }
       let settled = false
       let child
       const finish = result => {
@@ -265,39 +269,58 @@ export function createClaudeProvider(config) {
             return
           }
           if (frame.type === 'control_response') return
+          if (frame.type === 'user' && !frame.parent_tool_use_id && frame.isMeta !== true) {
+            const content = frame.message?.content
+            if (Array.isArray(content) && content.some(block => block.type === 'text' || block.type === 'image')) queued.shift()
+          }
           live.onFrame(frame)
           if (frame.type === 'result') {
-            const usage = frame.usage ?? {}
-            finish({
-              status: frame.is_error === true ? 'error' : 'done',
-              error: frame.is_error === true ? String(frame.result ?? frame.subtype ?? 'error') : undefined,
-              usage: { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, costUsd: frame.total_cost_usd, durationMs: frame.duration_ms },
-            })
-            child.endInput()
-            const exitTimer = setTimeout(() => child.kill(), 5_000)
-            exitTimer.unref?.()
+            const frameUsage = frame.usage ?? {}
+            usage.inputTokens += frameUsage.input_tokens ?? 0
+            usage.outputTokens += frameUsage.output_tokens ?? 0
+            usage.costUsd += frame.total_cost_usd ?? 0
+            usage.durationMs += frame.duration_ms ?? 0
+            if (frame.is_error === true || queued.length === 0) {
+              finish({
+                status: frame.is_error === true ? 'error' : 'done',
+                error: frame.is_error === true ? String(frame.result ?? frame.subtype ?? 'error') : undefined,
+                usage: { ...usage },
+              })
+              child.endInput()
+              const exitTimer = setTimeout(() => child.kill(), 5_000)
+              exitTimer.unref?.()
+            }
           }
         },
         onExit: ({ code, signal }) => {
           ownPids.delete(child.pid)
           if (settled) return
           const stderr = child.stderr().trim()
-          if (live.result !== undefined) return
+          if (live.result !== undefined && queued.length === 0) return
           finish({ status: 'error', error: stderr !== '' ? stderr.slice(-2000) : `claude exited with ${signal ?? code} before completing the turn` })
         },
         onError: error => finish({ status: 'error', error: messageOf(error) }),
       })
       if (child.pid !== undefined) ownPids.add(child.pid)
       child.write(`${JSON.stringify({ type: 'control_request', request_id: `dsh-init-${turnKey}`, request: { subtype: 'initialize', hooks: {} } })}\n`)
-      const content = request.text.trim() === '' ? [] : [{ type: 'text', text: request.text }]
-      for (const image of request.images ?? []) {
-        const stored = readUpload(image.id)
-        content.push({ type: 'image', source: { type: 'base64', media_type: stored.mediaType, data: stored.bytes.toString('base64') } })
+      const writeUser = message => {
+        const content = message.text.trim() === '' ? [] : [{ type: 'text', text: message.text }]
+        for (const image of message.images ?? []) {
+          const stored = readUpload(image.id)
+          content.push({ type: 'image', source: { type: 'base64', media_type: stored.mediaType, data: stored.bytes.toString('base64') } })
+        }
+        queued.push(content)
+        child.write(`${JSON.stringify({ type: 'user', session_id: request.sessionId ?? '', message: { role: 'user', content }, parent_tool_use_id: null })}\n`)
       }
-      child.write(`${JSON.stringify({ type: 'user', session_id: request.sessionId ?? '', message: { role: 'user', content }, parent_tool_use_id: null })}\n`)
+      writeUser(request)
 
       let killTimer
       return {
+        steer: message => {
+          if (settled) { const error = new Error('claude: turn is not running'); error.code = 'not-live'; throw error }
+          live.steer(message.text, message.images)
+          writeUser(message)
+        },
         cancel: () => {
           if (settled) return
           child.write(`${JSON.stringify({ type: 'control_request', request_id: `dsh-interrupt-${turnKey}`, request: { subtype: 'interrupt' } })}\n`)

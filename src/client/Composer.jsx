@@ -135,7 +135,11 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
   const needsWorkspace = isNew && cwd === ''
   const readyImages = attachments.filter(item => item.status === 'ready')
   const uploadsSettled = attachments.every(item => item.status === 'ready')
-  const canSend = (text.trim() !== '' || readyImages.length > 0) && uploadsSettled && !busy && !blocked && !needsWorkspace
+  const hasDraft = text.trim() !== '' || readyImages.length > 0
+  const canSend = hasDraft && uploadsSettled && !sending && !blocked && !needsWorkspace
+  // Like dsh: a running turn keeps Stop only while the draft is empty; typing
+  // turns the button back into Send, which steers the running turn.
+  const showStop = busy && !sending && !hasDraft
   const filtered = modelQuery.trim() === '' ? modelList : modelList.filter(m => m.id.toLowerCase().includes(modelQuery.trim().toLowerCase()) || m.label.toLowerCase().includes(modelQuery.trim().toLowerCase()))
   const exact = modelList.some(m => m.id === modelQuery.trim())
 
@@ -307,18 +311,18 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
                   <MenuItemButton onSelect={() => pickModel(modelQuery.trim())}>{t('model.use', { id: modelQuery.trim() })}</MenuItemButton>
                 )}
               </Menu>
-              <Tooltip label={busy ? t('composer.stop') : t('composer.send')} side="top" delayMs={500} portal disabled={blocked && !busy}>
+              <Tooltip label={showStop ? t('composer.stop') : t('composer.send')} side="top" delayMs={500} portal disabled={blocked && !busy}>
                 <button
                   type="button"
                   className={css.primary}
-                  aria-label={busy ? t('composer.stop') : t('composer.send')}
+                  aria-label={showStop ? t('composer.stop') : t('composer.send')}
                   aria-busy={sending}
                   data-sending={sending ? '' : undefined}
-                  disabled={busy ? false : !canSend}
+                  disabled={showStop ? false : !canSend}
                   onMouseDown={event => event.preventDefault()}
-                  onClick={busy ? onStop : submit}
+                  onClick={showStop ? onStop : submit}
                 >
-                  <SendGlyph kind={busy ? 'stop' : sending ? 'sending' : 'send'} />
+                  <SendGlyph kind={showStop ? 'stop' : sending ? 'sending' : 'send'} />
                 </button>
               </Tooltip>
             </div>

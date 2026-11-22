@@ -43,6 +43,14 @@ export function createCodexProvider(config) {
   let starting
   const routers = new Map()
   const processItems = new Map()
+  const ownThreads = new Set()
+
+  // The app-server reports threads it holds loaded as active; for threads this
+  // plugin drove that is our own turn, not another process holding the session.
+  function summary(thread) {
+    const row = codexThreadSummary(thread)
+    return ownThreads.has(thread.id) ? { ...row, live: undefined } : row
+  }
 
   function route(threadId) {
     return routers.get(threadId)
@@ -179,7 +187,7 @@ export function createCodexProvider(config) {
     async listSessions() {
       const rpc = await ensure()
       const threads = await listAllThreads(rpc)
-      return threads.filter(thread => thread.parentThreadId === null || thread.parentThreadId === undefined).map(codexThreadSummary)
+      return threads.filter(thread => thread.parentThreadId === null || thread.parentThreadId === undefined).map(summary)
     },
 
     async readTranscript(id) {
@@ -192,7 +200,7 @@ export function createCodexProvider(config) {
         const event = codexItemToEvent(item, base, true)
         if (event !== undefined) events.push(event)
       }
-      return { session: codexThreadSummary(thread), events }
+      return { session: summary(thread), events }
     },
 
     async startTurn(request, sink) {
@@ -208,6 +216,7 @@ export function createCodexProvider(config) {
         thread = response.thread
       }
       const threadId = thread.id
+      ownThreads.add(threadId)
       sink.setSession(threadId)
       const turnKey = randomUUID().slice(0, 8)
       sink.emit({ id: `${turnKey}:meta`, type: 'meta', ts: Date.now(), model: thread.model ?? undefined, cwd: thread.cwd })
@@ -319,16 +328,32 @@ export function createCodexProvider(config) {
         },
       }
       routers.set(threadId, router)
+      const userInput = message => {
+        const input = message.text.trim() === '' ? [] : [{ type: 'text', text: message.text, text_elements: [] }]
+        for (const image of message.images ?? []) input.push({ type: 'localImage', path: readUpload(image.id).path })
+        return input
+      }
+      let steerCount = 0
       try {
-        const input = request.text.trim() === '' ? [] : [{ type: 'text', text: request.text, text_elements: [] }]
-        for (const image of request.images ?? []) input.push({ type: 'localImage', path: readUpload(image.id).path })
-        const response = await rpc.request('turn/start', { threadId, input, clientUserMessageId: `${turnKey}:user`, effort: request.options?.effort || null }, { timeoutMs: 60_000 })
+        const response = await rpc.request('turn/start', { threadId, input: userInput(request), clientUserMessageId: `${turnKey}:user`, effort: request.options?.effort || null }, { timeoutMs: 60_000 })
         turnId = response.turn?.id
       } catch (error) {
         finish({ status: 'error', error: messageOf(error) })
         throw error
       }
       return {
+        steer: async message => {
+          const notLive = reason => { const error = new Error(reason); error.code = 'not-live'; return error }
+          if (settled || turnId === undefined) throw notLive('codex: turn is not running')
+          steerCount += 1
+          const messageId = `${turnKey}:steer:${steerCount}:user`
+          try {
+            await rpc.request('turn/steer', { threadId, expectedTurnId: turnId, input: userInput(message), clientUserMessageId: messageId }, { timeoutMs: 60_000 })
+          } catch (error) {
+            throw notLive(messageOf(error))
+          }
+          sink.emit({ id: messageId, type: 'user', ts: Date.now(), text: message.text, ...(message.images?.length ? { images: message.images } : {}) })
+        },
         cancel: () => {
           if (settled || turnId === undefined) return
           void rpc.request('turn/interrupt', { threadId, turnId }).catch(() => {})
@@ -348,6 +373,7 @@ export function createCodexProvider(config) {
     dispose() {
       for (const router of routers.values()) router.fail('codex: provider unloaded')
       routers.clear()
+      ownThreads.clear()
       client?.close()
       client = undefined
     },

@@ -110,6 +110,21 @@ export class TurnManager {
     return { ok: true }
   }
 
+  /** Feed a message into the running turn instead of starting a second one. */
+  async steer(turnId, request) {
+    const turn = this.#turns.get(turnId)
+    if (turn === undefined || !LIVE_STATES.has(turn.status) || turn.handle?.steer === undefined) {
+      const error = new Error('agent-cli: turn is not running')
+      error.code = 'not-live'
+      throw error
+    }
+    const hasImages = Array.isArray(request?.images) && request.images.length > 0
+    if (typeof request?.text !== 'string' || (request.text.trim() === '' && !hasImages)) throw new Error('agent-cli: message is empty')
+    await turn.handle.steer(request)
+    turn.lastPoll = Date.now()
+    return { turnId, sessionId: turn.sessionId }
+  }
+
   /**
    * @param {string} turnId
    * @param {string} requestId

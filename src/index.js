@@ -140,6 +140,17 @@ export function apply(ctx, config) {
         return failure(error)
       }
     },
+    async steerTurn(turnId, request) {
+      try {
+        const images = (request?.images ?? []).map(image => {
+          const stored = readUpload(image?.id)
+          return { id: image.id, mediaType: stored.mediaType }
+        })
+        return { ok: true, ...await turns.steer(turnId, { ...request, images }) }
+      } catch (error) {
+        return { ...failure(error), ...(typeof error?.code === 'string' ? { code: error.code } : {}) }
+      }
+    },
     cancelTurn(turnId) {
       try {
         return turns.cancel(turnId)

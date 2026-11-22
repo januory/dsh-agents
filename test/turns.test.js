@@ -81,6 +81,35 @@ test('turn manager reports start failures and empty input', async () => {
   turns.dispose()
 })
 
+test('turn manager steers a live turn and rejects a dead or steerless one', async () => {
+  const turns = new TurnManager({ retentionMs: 60_000, abandonTimeoutMs: 60_000 })
+  const provider = fakeProvider({
+    async startTurn(request, sink) {
+      sink.setSession('s1')
+      sink.emit({ id: 'u', type: 'user', ts: 1, text: request.text })
+      return {
+        steer: message => sink.emit({ id: `steer:${message.text}`, type: 'user', ts: 2, text: message.text }),
+        cancel: () => sink.finish({ status: 'cancelled' }),
+        answer: () => {},
+        dispose: () => {},
+      }
+    },
+  })
+  const { turnId } = await turns.start(provider, { cwd: '/p', text: 'first' })
+  await turns.steer(turnId, { text: 'second' })
+  const poll = turns.poll(turnId, 0)
+  assert.equal(poll.status, 'running')
+  assert.deepEqual(poll.events.map(e => e.text), ['first', 'second'])
+  assert.deepEqual(poll.events.map(e => e.seq), [1, 2])
+  await assert.rejects(() => turns.steer(turnId, { text: '  ' }), /empty/)
+  turns.cancel(turnId)
+  await assert.rejects(() => turns.steer(turnId, { text: 'x' }), error => error.code === 'not-live')
+  await assert.rejects(() => turns.steer('missing', { text: 'x' }), error => error.code === 'not-live')
+  const plain = await turns.start(fakeProvider(), { cwd: '/p', text: 'x' })
+  await assert.rejects(() => turns.steer(plain.turnId, { text: 'y' }), error => error.code === 'not-live')
+  turns.dispose()
+})
+
 test('registry validates providers and disposes', () => {
   const registry = new AgentCliRegistry()
   assert.throws(() => registry.register({ id: 'x', label: 'X' }), /lacks detect/)

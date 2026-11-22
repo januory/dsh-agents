@@ -20,7 +20,7 @@ try {
   console.log('list/read failed:', error.message)
 }
 
-if (process.argv.includes('--turn')) {
+if (process.argv.includes('--turn') || process.argv.includes('--steer') || process.argv.includes('--image')) {
   const cwd = join(process.cwd(), 'tmp', 'smoke-codex')
   mkdirSync(cwd, { recursive: true })
   const turns = new TurnManager({ retentionMs: 60_000, abandonTimeoutMs: 120_000, logger: console })
@@ -33,10 +33,18 @@ if (process.argv.includes('--turn')) {
       writeFileSync(join(process.cwd(), 'tmp', 'probe-image.png'), png)
       images = [{ id: saveUpload('image/png', png), mediaType: 'image/png' }]
     }
-    const text = images === undefined ? 'Reply with exactly: OK' : 'What color is this image? Answer with one word.'
+    const steer = process.argv.includes('--steer')
+    const text = steer ? 'Think carefully and write a 150-word story about a lighthouse. End your reply with exactly FIRST.'
+      : images === undefined ? 'Reply with exactly: OK' : 'What color is this image? Answer with one word.'
     const { turnId } = await turns.start(provider, { cwd, text, images })
-    for (let i = 0; i < 240; i++) {
+    const startedAt = Date.now()
+    let steered = !steer
+    for (let i = 0; i < 480; i++) {
       await new Promise(r => setTimeout(r, 250))
+      if (!steered && Date.now() - startedAt > 3000) {
+        steered = true
+        try { console.log('steer', await turns.steer(turnId, { text: 'Now reply with exactly SECOND.' })) } catch (error) { console.log('steer failed:', error.message) }
+      }
       const poll = turns.poll(turnId, 0)
       for (const e of poll.events) seen.set(e.id, e)
       if (!['starting', 'running', 'awaiting'].includes(poll.status)) {

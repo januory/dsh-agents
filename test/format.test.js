@@ -31,6 +31,11 @@ test('claude images echo on the live user event and count in history', () => {
   assert.deepEqual(emitted[0], { id: 'k:user', type: 'user', ts: emitted[0].ts, text: 'look', images })
   live.start('plain')
   assert.equal('images' in emitted[1], false)
+  live.steer('more', images)
+  live.steer('again')
+  assert.deepEqual(emitted.slice(2).map(e => e.id), ['k:steer:1:user', 'k:steer:2:user'])
+  assert.deepEqual(emitted[2].images, images)
+  assert.equal('images' in emitted[3], false)
   const events = parseClaudeRecords([
     { type: 'user', uuid: 'u1', timestamp: iso(1000), message: { role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image', source: { type: 'base64' } }, { type: 'image', source: { type: 'base64' } }] } },
     { type: 'user', uuid: 'u2', timestamp: iso(2000), message: { role: 'user', content: [{ type: 'image', source: { type: 'base64' } }] } },

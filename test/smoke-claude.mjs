@@ -17,14 +17,20 @@ if (sessions[0]) {
   console.log('transcript', sessions[0].id, 'events', t.events.length, counts, 'hasEarlier', t.session.hasEarlier)
 }
 
-async function runTurn(turns, request) {
+async function runTurn(turns, request, steerText) {
   const seen = new Map()
   const answered = new Set()
   const { turnId } = await turns.start(provider, request)
   console.log('turn', turnId, 'resume', request.sessionId ?? '(new)')
+  const startedAt = Date.now()
+  let steered = steerText === undefined
   let sessionId
-  for (let i = 0; i < 480; i++) {
+  for (let i = 0; i < (steerText === undefined ? 480 : 960); i++) {
     await new Promise(r => setTimeout(r, 250))
+    if (!steered && Date.now() - startedAt > 3000) {
+      steered = true
+      try { console.log('steer', await turns.steer(turnId, { text: steerText })) } catch (error) { console.log('steer failed:', error.message) }
+    }
     const poll = turns.poll(turnId, 0)
     sessionId = poll.sessionId
     for (const e of poll.events) {
@@ -44,12 +50,13 @@ async function runTurn(turns, request) {
   return sessionId
 }
 
-if (process.argv.includes('--turn') || process.argv.includes('--tool') || process.argv.includes('--ask')) {
+if (process.argv.includes('--turn') || process.argv.includes('--tool') || process.argv.includes('--ask') || process.argv.includes('--steer')) {
   const cwd = join(process.cwd(), 'tmp', 'smoke-claude')
   mkdirSync(cwd, { recursive: true })
   const turns = new TurnManager({ retentionMs: 60_000, abandonTimeoutMs: 120_000, logger: console })
   const text = process.argv.includes('--ask') ? 'Use the Bash tool to run `touch probe.txt` in the current directory, then reply done.'
-    : process.argv.includes('--tool') ? 'Use the Bash tool to run `echo hello` and report its output.' : 'Reply with exactly: OK'
+    : process.argv.includes('--tool') ? 'Use the Bash tool to run `echo hello` and report its output.'
+      : process.argv.includes('--steer') ? 'Think carefully and write a 150-word story about a lighthouse. End your reply with exactly FIRST.' : 'Reply with exactly: OK'
   const options = process.argv.includes('--manual') ? { permissionMode: 'manual' } : undefined
   let images
   if (process.argv.includes('--image')) {
@@ -59,7 +66,7 @@ if (process.argv.includes('--turn') || process.argv.includes('--tool') || proces
     images = [{ id: saveUpload('image/png', png), mediaType: 'image/png' }]
   }
   const prompt = images === undefined ? text : 'What color is this image? Answer with one word.'
-  const sessionId = await runTurn(turns, { cwd, text: prompt, options, images })
+  const sessionId = await runTurn(turns, { cwd, text: prompt, options, images }, process.argv.includes('--steer') ? 'Now reply with exactly SECOND.' : undefined)
   if (process.argv.includes('--tool') && sessionId) {
     const t = await provider.readTranscript(sessionId)
     console.log('disk transcript after turn', t.events.map(e => `${e.type}${e.name ? ':' + e.name : ''}${e.status ? ':' + e.status : ''}`).join(', '))

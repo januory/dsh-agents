@@ -168,10 +168,16 @@ export class ClaudeLive {
     this.toolIds = new Set()
     this.result = undefined
     this.sessionId = undefined
+    this.steerCount = 0
   }
 
   start(text, images) {
     this.sink.emit({ id: `${this.turnKey}:user`, type: 'user', ts: Date.now(), text, ...(images?.length ? { images } : {}) })
+  }
+
+  steer(text, images) {
+    this.steerCount += 1
+    this.sink.emit({ id: `${this.turnKey}:steer:${this.steerCount}:user`, type: 'user', ts: Date.now(), text, ...(images?.length ? { images } : {}) })
   }
 
   onFrame(frame) {
