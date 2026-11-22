@@ -25,7 +25,8 @@ export class TurnManager {
    * @returns {Promise<{ turnId: string, sessionId: string | undefined }>}
    */
   async start(provider, request) {
-    if (typeof request?.text !== 'string' || request.text.trim() === '') throw new Error('agent-cli: message is empty')
+    const hasImages = Array.isArray(request?.images) && request.images.length > 0
+    if (typeof request?.text !== 'string' || (request.text.trim() === '' && !hasImages)) throw new Error('agent-cli: message is empty')
     if (typeof request.cwd !== 'string' || request.cwd === '') throw new Error('agent-cli: a working directory is required')
     for (const turn of this.#turns.values()) {
       if (turn.providerId === provider.id && turn.sessionId !== undefined && turn.sessionId === request.sessionId && LIVE_STATES.has(turn.status)) {

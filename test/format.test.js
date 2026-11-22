@@ -23,6 +23,30 @@ test('claude records fold text, thinking, tool calls and results', () => {
   assert.equal(events[3].text, 'done')
 })
 
+test('claude images echo on the live user event and count in history', () => {
+  const emitted = []
+  const live = new ClaudeLive({ emit: e => emitted.push(e), setSession: () => {}, finish: () => {} }, { turnKey: 'k' })
+  const images = [{ id: 'a.png', mediaType: 'image/png' }, { id: 'b.jpg', mediaType: 'image/jpeg' }]
+  live.start('look', images)
+  assert.deepEqual(emitted[0], { id: 'k:user', type: 'user', ts: emitted[0].ts, text: 'look', images })
+  live.start('plain')
+  assert.equal('images' in emitted[1], false)
+  const events = parseClaudeRecords([
+    { type: 'user', uuid: 'u1', timestamp: iso(1000), message: { role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image', source: { type: 'base64' } }, { type: 'image', source: { type: 'base64' } }] } },
+    { type: 'user', uuid: 'u2', timestamp: iso(2000), message: { role: 'user', content: [{ type: 'image', source: { type: 'base64' } }] } },
+    { type: 'user', uuid: 'u3', isMeta: true, turnCompanion: true, timestamp: iso(2100), message: { role: 'user', content: [{ type: 'text', text: '[Image: source: /tmp/1.png]' }] } },
+  ])
+  assert.deepEqual(events.map(e => ({ text: e.text, imageCount: e.imageCount })), [{ text: 'look', imageCount: 2 }, { text: '', imageCount: 1 }])
+  const summary = summarizeClaude({ path: '/p', id: 's', head: [{ type: 'user', uuid: 'm', isMeta: true, timestamp: iso(1), message: { content: '<local-command-caveat>x</local-command-caveat>' } }, { type: 'user', uuid: 'h', timestamp: iso(2), message: { content: 'real prompt' } }], tail: [], size: 1, mtimeMs: 3 })
+  assert.equal(summary.title, 'real prompt')
+  assert.equal(summary.messageCount, 1)
+})
+
+test('codex user message counts image and localImage content', () => {
+  assert.deepEqual(codexItemToEvent({ type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'hi' }, { type: 'localImage', path: '/a.png' }, { type: 'image', url: 'x' }] }, 1, true), { id: 'u', type: 'user', ts: 1, text: 'hi', imageCount: 2 })
+  assert.equal(codexItemToEvent({ type: 'userMessage', id: 'u', content: [] }, 1, true), undefined)
+})
+
 test('claude summary prefers custom title over ai title and first prompt', () => {
   const head = [
     { type: 'user', uuid: 'u1', timestamp: iso(1000), cwd: '/p', gitBranch: 'main', message: { content: 'first prompt' } },

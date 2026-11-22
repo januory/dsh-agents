@@ -19,6 +19,7 @@ dsh plugin --profile web add @januory/dsh-agents
   shell.overlay       标题栏下拉框          TurnManager：seq 缓冲，轮询
   settings.section    默认选项              claude：JSONL + claude -p stream-json
                                             codex： app-server JSON-RPC
+  输入框粘贴          图片缩略图            /api/agent-cli.upload|attachment
 ```
 
 ## 配置

@@ -1,7 +1,9 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createClaudeProvider } from '../src/providers/claude.js'
 import { TurnManager } from '../src/turns.js'
+import { saveUpload } from '../src/uploads.js'
+import { solidPng } from './png.mjs'
 
 const provider = createClaudeProvider({ command: '', home: '' })
 console.log('detect', await provider.detect())
@@ -49,7 +51,15 @@ if (process.argv.includes('--turn') || process.argv.includes('--tool') || proces
   const text = process.argv.includes('--ask') ? 'Use the Bash tool to run `touch probe.txt` in the current directory, then reply done.'
     : process.argv.includes('--tool') ? 'Use the Bash tool to run `echo hello` and report its output.' : 'Reply with exactly: OK'
   const options = process.argv.includes('--manual') ? { permissionMode: 'manual' } : undefined
-  const sessionId = await runTurn(turns, { cwd, text, options })
+  let images
+  if (process.argv.includes('--image')) {
+    process.env.DSH_HOME ??= join(process.cwd(), 'tmp', 'home')
+    const png = solidPng(160, 120, [220, 40, 40])
+    writeFileSync(join(process.cwd(), 'tmp', 'probe-image.png'), png)
+    images = [{ id: saveUpload('image/png', png), mediaType: 'image/png' }]
+  }
+  const prompt = images === undefined ? text : 'What color is this image? Answer with one word.'
+  const sessionId = await runTurn(turns, { cwd, text: prompt, options, images })
   if (process.argv.includes('--tool') && sessionId) {
     const t = await provider.readTranscript(sessionId)
     console.log('disk transcript after turn', t.events.map(e => `${e.type}${e.name ? ':' + e.name : ''}${e.status ? ':' + e.status : ''}`).join(', '))

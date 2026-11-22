@@ -35,8 +35,9 @@ export function userTextOf(message) {
   return content.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n')
 }
 
+// Claude flags synthetic companions (image-source notes, caveats, reminders) isMeta; nobody typed them.
 function isHumanUser(record) {
-  if (record.type !== 'user' || record.isSidechain === true) return false
+  if (record.type !== 'user' || record.isSidechain === true || record.isMeta === true) return false
   const content = record.message?.content
   if (typeof content === 'string') return true
   return Array.isArray(content) && content.some(block => block.type === 'text')
@@ -64,9 +65,10 @@ export function parseClaudeRecords(records) {
     const time = ts(record.timestamp)
     if (record.type === 'user') {
       const content = record.message?.content
-      if (typeof content === 'string' || (Array.isArray(content) && content.some(b => b.type === 'text'))) {
-        const text = userTextOf(record.message)
-        if (text.trim() !== '') put({ id: record.uuid, type: 'user', ts: time, text })
+      if (record.isMeta !== true && (typeof content === 'string' || Array.isArray(content))) {
+        const text = typeof content === 'string' ? content : userTextOf(record.message)
+        const imageCount = Array.isArray(content) ? content.filter(b => b.type === 'image').length : 0
+        if (text.trim() !== '' || imageCount > 0) put({ id: record.uuid, type: 'user', ts: time, text, ...(imageCount > 0 ? { imageCount } : {}) })
       }
       if (Array.isArray(content)) {
         for (const block of content) {
@@ -168,8 +170,8 @@ export class ClaudeLive {
     this.sessionId = undefined
   }
 
-  start(text) {
-    this.sink.emit({ id: `${this.turnKey}:user`, type: 'user', ts: Date.now(), text })
+  start(text, images) {
+    this.sink.emit({ id: `${this.turnKey}:user`, type: 'user', ts: Date.now(), text, ...(images?.length ? { images } : {}) })
   }
 
   onFrame(frame) {

@@ -1,7 +1,9 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createCodexProvider } from '../src/providers/codex.js'
 import { TurnManager } from '../src/turns.js'
+import { saveUpload } from '../src/uploads.js'
+import { solidPng } from './png.mjs'
 
 const provider = createCodexProvider({ command: process.env.CODEX_BIN ?? 'codex', home: process.env.CODEX_HOME_TEST ?? '' })
 console.log('detect', await provider.detect())
@@ -24,8 +26,16 @@ if (process.argv.includes('--turn')) {
   const turns = new TurnManager({ retentionMs: 60_000, abandonTimeoutMs: 120_000, logger: console })
   const seen = new Map()
   try {
-    const { turnId } = await turns.start(provider, { cwd, text: 'Reply with exactly: OK' })
-    for (let i = 0; i < 120; i++) {
+    let images
+    if (process.argv.includes('--image')) {
+      process.env.DSH_HOME ??= join(process.cwd(), 'tmp', 'home')
+      const png = solidPng(160, 120, [220, 40, 40])
+      writeFileSync(join(process.cwd(), 'tmp', 'probe-image.png'), png)
+      images = [{ id: saveUpload('image/png', png), mediaType: 'image/png' }]
+    }
+    const text = images === undefined ? 'Reply with exactly: OK' : 'What color is this image? Answer with one word.'
+    const { turnId } = await turns.start(provider, { cwd, text, images })
+    for (let i = 0; i < 240; i++) {
       await new Promise(r => setTimeout(r, 250))
       const poll = turns.poll(turnId, 0)
       for (const e of poll.events) seen.set(e.id, e)

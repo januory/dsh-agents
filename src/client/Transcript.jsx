@@ -1,11 +1,12 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import {
   Button, CodeBlock, DisclosureRow, IconCheckOutlineMedium, IconCloseOutlineMedium, IconCodeOutlineMedium, IconEditOutlineMedium, IconFilesDiffOutlineMedium,
-  IconGlobeOutlineMedium, IconSearchOutlineMedium, IconThinkOutlineMedium, IconWarningOutlineMedium, JsonTree, MarkdownText, StateDot, Tag, TerminalBlock, TextShimmer, UserMessageBubble,
+  IconGlobeOutlineMedium, IconSearchOutlineMedium, IconThinkOutlineMedium, IconWarningOutlineMedium, ImageLightbox, JsonTree, MarkdownText, StateDot, Tag, TerminalBlock, TextShimmer, UserMessageBubble,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
 import { SourceIcon, sourceColor } from './SourceIcon.jsx'
 import { basename, jsonLabels, markdownLabels, runDuration, terminalLabels } from './labels.js'
+import { attachmentUrl } from './uploads.js'
 import css from './Transcript.module.css'
 
 const TOOL_ICONS = {
@@ -70,10 +71,55 @@ function diffTextOf(event) {
   return ''
 }
 
-const UserItem = memo(function UserItem({ event }) {
+// dsh's lone-image rule: long edge 240px, aspect clamped to [0.25, 4], never upscaled.
+function singleFit({ width, height }) {
+  const natural = width / height
+  const ratio = Math.min(4, Math.max(0.25, natural))
+  const box = ratio >= 1 ? { width: 240, height: 240 / ratio } : { width: 240 * ratio, height: 240 }
+  const scale = Math.min(1, width / box.width, height / box.height)
+  return {
+    width: Math.max(1, Math.round(box.width * scale)),
+    height: Math.max(1, Math.round(box.height * scale)),
+    objectPosition: natural < 0.25 ? 'center top' : natural > 4 ? 'left center' : 'center',
+  }
+}
+
+function UserImage({ id, single, t }) {
+  const src = attachmentUrl(id)
+  const [size, setSize] = useState(null)
+  const [failed, setFailed] = useState(false)
+  const [open, setOpen] = useState(false)
+  const fit = single ? (size === null ? { width: 240, height: 240, objectPosition: 'center' } : singleFit(size)) : null
+  return (
+    <>
+      <button
+        type="button"
+        className={css.imageFrame}
+        style={fit === null ? undefined : { width: fit.width, height: fit.height }}
+        title={t('image.openOriginal')}
+        aria-label={t('image.openOriginal')}
+        disabled={failed}
+        onClick={() => setOpen(true)}
+      >
+        {failed ? <span className={css.imageFailed}>{t('image.loadFailed')}</span>
+          : <img src={src} alt={t('image.label')} style={fit === null ? undefined : { objectPosition: fit.objectPosition }} onLoad={event => setSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} onError={() => setFailed(true)} />}
+      </button>
+      {open && <ImageLightbox src={src} alt={t('image.original')} labels={{ dialog: t('image.preview'), close: t('image.closePreview') }} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+const UserItem = memo(function UserItem({ event, t }) {
+  const images = event.images ?? []
   return (
     <div className={css.userRow}>
-      <UserMessageBubble className={css.userBubble}>{event.text}</UserMessageBubble>
+      {images.length > 0 && (
+        <div className={css.userImages}>
+          {images.map(image => <UserImage key={image.id} id={image.id} single={images.length === 1} t={t} />)}
+        </div>
+      )}
+      {event.imageCount > 0 && <div className={css.userImages}><Tag tone="quiet">{t('image.count', { n: event.imageCount })}</Tag></div>}
+      {(event.text ?? '') !== '' && <UserMessageBubble className={css.userBubble}>{event.text}</UserMessageBubble>}
     </div>
   )
 })
@@ -200,7 +246,7 @@ function CompactItem({ t }) {
 
 export function TranscriptItem({ event, t, onAnswer }) {
   switch (event.type) {
-    case 'user': return <UserItem event={event} />
+    case 'user': return <UserItem event={event} t={t} />
     case 'assistant': return <AssistantItem event={event} t={t} />
     case 'thinking': return <ThinkingItem event={event} t={t} />
     case 'tool': return <ToolItem event={event} t={t} />

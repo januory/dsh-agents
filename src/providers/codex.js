@@ -6,6 +6,7 @@ import { capture, resolveCommand } from './cli.js'
 import { JsonRpcClient } from './jsonrpc.js'
 import { codexItemToEvent, codexThreadSummary } from './codex-format.js'
 import { messageOf } from '../remote.js'
+import { readUpload } from '../uploads.js'
 
 const PERMISSION_MODES = ['untrusted', 'on-request', 'never']
 const LIST_PAGE = 200
@@ -210,6 +211,7 @@ export function createCodexProvider(config) {
       sink.setSession(threadId)
       const turnKey = randomUUID().slice(0, 8)
       sink.emit({ id: `${turnKey}:meta`, type: 'meta', ts: Date.now(), model: thread.model ?? undefined, cwd: thread.cwd })
+      sink.emit({ id: `${turnKey}:user`, type: 'user', ts: Date.now(), text: request.text, ...(request.images?.length ? { images: request.images } : {}) })
 
       const items = new Map()
       const approvals = new Map()
@@ -218,6 +220,9 @@ export function createCodexProvider(config) {
       let settled = false
       const emit = item => sink.emit(item)
       const put = (item, done, ts) => {
+        // The turn's own user echo carries the pasted images; the server's
+        // userMessage item would duplicate it without them.
+        if (item.type === 'userMessage') return
         const event = codexItemToEvent(item, ts, done)
         if (event === undefined) return
         const previous = items.get(event.id)
@@ -315,7 +320,9 @@ export function createCodexProvider(config) {
       }
       routers.set(threadId, router)
       try {
-        const response = await rpc.request('turn/start', { threadId, input: [{ type: 'text', text: request.text, text_elements: [] }], clientUserMessageId: `${turnKey}:user`, effort: request.options?.effort || null }, { timeoutMs: 60_000 })
+        const input = request.text.trim() === '' ? [] : [{ type: 'text', text: request.text, text_elements: [] }]
+        for (const image of request.images ?? []) input.push({ type: 'localImage', path: readUpload(image.id).path })
+        const response = await rpc.request('turn/start', { threadId, input, clientUserMessageId: `${turnKey}:user`, effort: request.options?.effort || null }, { timeoutMs: 60_000 })
         turnId = response.turn?.id
       } catch (error) {
         finish({ status: 'error', error: messageOf(error) })

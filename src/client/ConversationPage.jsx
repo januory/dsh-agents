@@ -82,7 +82,7 @@ export function ConversationPage(props) {
       addWorkspace={addWorkspace}
       onLaunch={patch => setLaunch(source, patch)}
       onStop={() => { void cancel() }}
-      onSend={request => { void send(source, { sessionId: session?.id, ...request }) }}
+      onSend={request => send(source, { sessionId: session?.id, ...request })}
     />
   )
   if (blank) {

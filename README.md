@@ -19,6 +19,7 @@ client (lib/client.js)                    host (src/index.js)
   shell.overlay       header dropdown       TurnManager: seq buffer, polled
   settings.section    defaults              claude: JSONL + claude -p stream-json
                                             codex:  app-server JSON-RPC
+  composer paste      image thumbnails      /api/agent-cli.upload|attachment
 ```
 
 ## Config

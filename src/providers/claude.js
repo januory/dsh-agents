@@ -6,6 +6,7 @@ import { capture, parseJsonLine, resolveCommand, spawnLines } from './cli.js'
 import { headTail, tailRecords } from './files.js'
 import { ClaudeLive, parseClaudeRecords, summarizeClaude } from './claude-format.js'
 import { messageOf } from '../remote.js'
+import { readUpload } from '../uploads.js'
 
 const PERMISSION_MODES = ['acceptEdits', 'auto', 'plan', 'dontAsk', 'manual', 'bypassPermissions']
 const MAX_TRANSCRIPT_BYTES = 4 * 1024 * 1024
@@ -214,7 +215,7 @@ export function createClaudeProvider(config) {
 
       const turnKey = randomUUID().slice(0, 8)
       const live = new ClaudeLive(sink, { turnKey })
-      live.start(request.text)
+      live.start(request.text, request.images)
       const approvals = new Map()
       let settled = false
       let child
@@ -288,7 +289,12 @@ export function createClaudeProvider(config) {
       })
       if (child.pid !== undefined) ownPids.add(child.pid)
       child.write(`${JSON.stringify({ type: 'control_request', request_id: `dsh-init-${turnKey}`, request: { subtype: 'initialize', hooks: {} } })}\n`)
-      child.write(`${JSON.stringify({ type: 'user', session_id: request.sessionId ?? '', message: { role: 'user', content: [{ type: 'text', text: request.text }] }, parent_tool_use_id: null })}\n`)
+      const content = request.text.trim() === '' ? [] : [{ type: 'text', text: request.text }]
+      for (const image of request.images ?? []) {
+        const stored = readUpload(image.id)
+        content.push({ type: 'image', source: { type: 'base64', media_type: stored.mediaType, data: stored.bytes.toString('base64') } })
+      }
+      child.write(`${JSON.stringify({ type: 'user', session_id: request.sessionId ?? '', message: { role: 'user', content }, parent_tool_use_id: null })}\n`)
 
       let killTimer
       return {

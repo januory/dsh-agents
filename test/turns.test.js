@@ -69,7 +69,11 @@ test('turn manager numbers events, gates approvals and guards one turn per sessi
 test('turn manager reports start failures and empty input', async () => {
   const turns = new TurnManager({ retentionMs: 60_000, abandonTimeoutMs: 60_000 })
   await assert.rejects(() => turns.start(fakeProvider(), { cwd: '/p', text: '  ' }), /empty/)
+  await assert.rejects(() => turns.start(fakeProvider(), { cwd: '/p', text: '', images: [] }), /empty/)
   await assert.rejects(() => turns.start(fakeProvider(), { cwd: '', text: 'x' }), /working directory/)
+  const imageOnly = await turns.start(fakeProvider(), { cwd: '/p', text: '', images: [{ id: 'a.png', mediaType: 'image/png' }] })
+  assert.equal(turns.poll(imageOnly.turnId, 0).status, 'running')
+  turns.cancel(imageOnly.turnId)
   const { turnId } = await turns.start(fakeProvider({ async startTurn() { throw new Error('boom') } }), { cwd: '/p', text: 'x' })
   const poll = turns.poll(turnId, 0)
   assert.equal(poll.status, 'error')

@@ -46,7 +46,8 @@
  * @typedef {object} TurnRequest
  * @property {string} [sessionId] - omit to start a new session
  * @property {string} cwd
- * @property {string} text
+ * @property {string} text - may be empty when images are attached
+ * @property {{ id: string, mediaType: string }[]} [images] - pasted images already stored by the host's upload route
  * @property {object} [options] - provider-native launch options chosen by the user
  *
  * @typedef {object} AgentCliProvider

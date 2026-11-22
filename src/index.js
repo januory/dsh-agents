@@ -1,7 +1,8 @@
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import { INVOCATIONS, NAMESPACE, PACKAGE, REGISTRY_KEY, failure } from './remote.js'
+import { mediaTypeOf, readUpload, saveUpload, uploadPath } from './uploads.js'
 import { AgentCliRegistry } from './registry.js'
 import { TurnManager } from './turns.js'
 import { applyOverlay, overlayKey, providerSettings, providerWorkspaces, readState, writeState } from './store.js'
@@ -122,7 +123,11 @@ export function apply(ctx, config) {
         const status = await detect(provider)
         if (!status.available) throw new Error(status.error ?? `${provider.label} is not available`)
         const options = launchOptions(provider, request?.options)
-        const started = await turns.start(provider, { ...request, options })
+        const images = (request?.images ?? []).map(image => {
+          const stored = readUpload(image?.id)
+          return { id: image.id, mediaType: stored.mediaType }
+        })
+        const started = await turns.start(provider, { ...request, images, options })
         return { ok: true, ...started }
       } catch (error) {
         return failure(error)
@@ -245,6 +250,47 @@ export function apply(ctx, config) {
     value: Object.freeze({ service, serviceKey: NAMESPACE, namespace: NAMESPACE }),
   })
   ctx.provide(NAMESPACE, service)
+
+  // Pasted images ride the connection's HTTP carrier: the Remote JSON uplink
+  // is capped at 256 KiB, far below a screenshot.
+  ctx.inject(['connection'], connectionCtx => {
+    const connection = connectionCtx.get('connection')
+    if (connection === undefined) return
+    const json = (body, status = 200) => Response.json(body, { status })
+    const disposers = [
+      connection.fetch.register({
+        path: '/api/agent-cli.upload',
+        methods: ['POST'],
+        requestBody: 'buffered',
+        fetch: async request => {
+          try {
+            const mediaType = new URL(request.url).searchParams.get('mediaType') ?? ''
+            const bytes = new Uint8Array(await request.arrayBuffer())
+            return json({ ok: true, id: saveUpload(mediaType, bytes), mediaType, size: bytes.byteLength })
+          } catch (error) {
+            return json(failure(error), 400)
+          }
+        },
+      }),
+      connection.fetch.register({
+        path: '/api/agent-cli.attachment',
+        methods: ['GET', 'HEAD'],
+        requestBody: 'buffered',
+        fetch: async request => {
+          const id = new URL(request.url).searchParams.get('id') ?? ''
+          const file = uploadPath(id)
+          if (file === null || !existsSync(file)) return json({ ok: false, error: 'unknown attachment' }, 404)
+          const bytes = readFileSync(file)
+          const headers = { 'Content-Type': mediaTypeOf(id), 'Content-Length': String(bytes.byteLength), 'Cache-Control': 'private, max-age=86400' }
+          if (request.method === 'HEAD') return new Response(null, { headers })
+          return new Response(bytes, { headers })
+        },
+      }),
+    ]
+    return () => {
+      for (const dispose of disposers) dispose()
+    }
+  })
 
   ctx.inject(['typert'], typertCtx => {
     const typert = typertCtx.get('typert')

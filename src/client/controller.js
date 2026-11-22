@@ -266,7 +266,7 @@ export class AgentCliController {
   /**
    * Send a message. `sessionId` undefined starts a new CLI session in `cwd`.
    */
-  async send(provider, { sessionId, cwd, text, options }) {
+  async send(provider, { sessionId, cwd, text, options, images }) {
     const state = this.transcript.getSnapshot()
     if (state.sending || (state.turn !== null && isLive(state.turn.status))) return { ok: false, error: 'busy' }
     const workingDir = cwd ?? state.session?.cwd
@@ -275,7 +275,7 @@ export class AgentCliController {
       d.sending = true
       d.error = null
     })
-    const answer = await this.call('startTurn', provider, { sessionId, cwd: workingDir, text, options })
+    const answer = await this.call('startTurn', provider, { sessionId, cwd: workingDir, text, options, images })
     if (this.disposed) return answer
     this.transcript.update(d => { d.sending = false })
     if (!answer.ok) {

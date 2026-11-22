@@ -40,8 +40,11 @@ export function codexItemToEvent(item, ts, done) {
   const id = item.id ?? `${item.type}:${ts}`
   switch (item.type) {
     case 'userMessage': {
-      const text = textOf(item.content)
-      return text.trim() === '' ? undefined : { id, type: 'user', ts, text }
+      const parts = Array.isArray(item.content) ? item.content.filter(entry => entry.type === 'text' || entry.type === 'input_text' || entry.type === 'output_text') : item.content
+      const text = textOf(parts)
+      const imageCount = (item.content ?? []).filter(entry => entry.type === 'image' || entry.type === 'input_image' || entry.type === 'localImage').length
+      if (text.trim() === '' && imageCount === 0) return undefined
+      return { id, type: 'user', ts, text, ...(imageCount > 0 ? { imageCount } : {}) }
     }
     case 'agentMessage':
       return { id, type: 'assistant', ts, text: item.text ?? '', done, commentary: item.phase === 'commentary' }

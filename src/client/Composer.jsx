@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  IconChevronDownOutlineRegular, IconDataOutlineRegular, IconThinkOutlineMedium, Menu, MenuItemButton,
+  IconChevronDownOutlineRegular, IconCloseFillRegular, IconDataOutlineRegular, IconRefreshOutlineRegular, IconThinkOutlineMedium, ImageLightbox, Menu, MenuItemButton,
   PermissionIconAutoReviewMedium, PermissionIconFullAccessMedium, PermissionIconReadOnlyMedium, PermissionIconWorkspaceWriteMedium,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
 import { effortLabel, modeLabel } from './labels.js'
+import { IMAGE_TYPES, MAX_IMAGE_BYTES, uploadImage } from './uploads.js'
 import { WorkspaceSelect } from './WorkspaceSelect.jsx'
 import css from './Composer.module.css'
+
+let nextAttachmentKey = 0
+
+function hasFiles(event) {
+  return event.dataTransfer !== null && [...event.dataTransfer.types].includes('Files')
+}
 
 const MODE_GLYPHS = {
   '': PermissionIconWorkspaceWriteMedium,
@@ -61,8 +68,53 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
   const [modelOpen, setModelOpen] = useState(false)
   const [modelQuery, setModelQuery] = useState('')
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
+  const [attachments, setAttachments] = useState([])
+  const [notice, setNotice] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [dragging, setDragging] = useState(false)
+  const dragDepth = useRef(0)
   const composing = useRef(false)
   const area = useRef(null)
+  const held = useRef(attachments)
+  held.current = attachments
+  const release = item => URL.revokeObjectURL(item.url)
+  const clearAttachments = () => {
+    for (const item of held.current) release(item)
+    setAttachments([])
+  }
+  const patchAttachment = (key, patch) => setAttachments(list => list.map(item => item.key === key ? { ...item, ...patch } : item))
+  const startUpload = item => {
+    patchAttachment(item.key, { status: 'uploading', error: null })
+    uploadImage(item.file)
+      .then(id => patchAttachment(item.key, { status: 'ready', id }))
+      .catch(error => patchAttachment(item.key, { status: 'error', error: error instanceof Error ? error.message : String(error) }))
+  }
+  const addFiles = files => {
+    const picked = [...files].filter(file => file.size > 0)
+    if (blocked || picked.length === 0) return
+    if (picked.some(file => !IMAGE_TYPES.has(file.type))) { setNotice(t('image.unsupportedType')); return }
+    if (picked.some(file => file.size > MAX_IMAGE_BYTES)) { setNotice(t('image.fileTooLarge', { size: '20 MB' })); return }
+    setNotice(null)
+    const items = picked.map(file => ({ key: ++nextAttachmentKey, file, url: URL.createObjectURL(file), status: 'uploading', id: null, error: null }))
+    setAttachments(list => [...list, ...items])
+    for (const item of items) startUpload(item)
+  }
+  const removeAttachment = key => {
+    const item = held.current.find(entry => entry.key === key)
+    if (item !== undefined) release(item)
+    setAttachments(list => list.filter(entry => entry.key !== key))
+  }
+  const sessionKey = `${session?.id ?? ''}:${newNonce}`
+  useEffect(() => { clearAttachments() }, [sessionKey])
+  useEffect(() => () => { for (const item of held.current) release(item) }, [])
+  useEffect(() => {
+    if (preview !== null && !attachments.some(item => item.key === preview.key)) setPreview(null)
+  }, [attachments, preview])
+  useEffect(() => {
+    if (notice === null) return
+    const timer = setTimeout(() => setNotice(null), 6000)
+    return () => clearTimeout(timer)
+  }, [notice])
   useEffect(() => {
     if (isNew) setCwd(initialCwd ?? workspaces[0]?.path ?? '')
   }, [newNonce])
@@ -81,14 +133,19 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
   const efforts = activeModel?.efforts?.length ? activeModel.efforts : (provider?.reasoningEfforts ?? [])
   const blocked = disabledReason !== undefined || provider?.available === false
   const needsWorkspace = isNew && cwd === ''
-  const canSend = text.trim() !== '' && !busy && !blocked && !needsWorkspace
+  const readyImages = attachments.filter(item => item.status === 'ready')
+  const uploadsSettled = attachments.every(item => item.status === 'ready')
+  const canSend = (text.trim() !== '' || readyImages.length > 0) && uploadsSettled && !busy && !blocked && !needsWorkspace
   const filtered = modelQuery.trim() === '' ? modelList : modelList.filter(m => m.id.toLowerCase().includes(modelQuery.trim().toLowerCase()) || m.label.toLowerCase().includes(modelQuery.trim().toLowerCase()))
   const exact = modelList.some(m => m.id === modelQuery.trim())
 
   const submit = () => {
     if (!canSend) return
-    onSend({ text: text.trim(), cwd: isNew ? cwd : undefined, options: { permissionMode, model } })
+    const images = readyImages.map(item => ({ id: item.id, mediaType: item.file.type }))
+    const answer = onSend({ text: text.trim(), cwd: isNew ? cwd : undefined, options: { permissionMode, model }, ...(images.length > 0 ? { images } : {}) })
     setText('')
+    // Keep the thumbnails if the send failed so the same images can go again.
+    void Promise.resolve(answer).then(result => { if (result?.ok !== false) clearAttachments() })
   }
   const pickModel = id => {
     onLaunch({ model: id })
@@ -116,7 +173,41 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
           </div>
         )}
         {disabledReason !== undefined && <div className={css.blocked}>{disabledReason}</div>}
-        <div className={css.box} onClick={needsWorkspace && !blocked ? () => setWorkspaceOpen(true) : undefined}>
+        <div
+          className={cx(css.box, dragging && css.boxDrag)}
+          onClick={needsWorkspace && !blocked ? () => setWorkspaceOpen(true) : undefined}
+          onDragEnter={event => { if (!hasFiles(event)) return; event.preventDefault(); dragDepth.current += 1; setDragging(true) }}
+          onDragOver={event => { if (!hasFiles(event)) return; event.preventDefault(); event.dataTransfer.dropEffect = blocked ? 'none' : 'copy' }}
+          onDragLeave={event => { if (!hasFiles(event)) return; dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) setDragging(false) }}
+          onDrop={event => { if (!hasFiles(event)) return; event.preventDefault(); dragDepth.current = 0; setDragging(false); addFiles(event.dataTransfer.files) }}
+        >
+          {attachments.length > 0 && (
+            <div className={css.attachments} onClick={event => event.stopPropagation()}>
+              {attachments.map(item => {
+                const label = item.file.name || t('image.pending')
+                return (
+                  <div key={item.key} className={css.imageItem} data-status={item.status}>
+                    {item.status === 'error' ? (
+                      <Tooltip label={item.error ?? t('image.retry')} side="top" delayMs={300} portal>
+                        <button type="button" className={cx(css.thumbnail, css.thumbnailFailed)} aria-label={t('image.retry')} onClick={() => startUpload(item)}>
+                          <img src={item.url} alt="" />
+                          <span className={css.failureGlyph} aria-hidden><IconRefreshOutlineRegular size={16} /></span>
+                        </button>
+                      </Tooltip>
+                    ) : (
+                      <button type="button" className={css.thumbnail} title={t('image.openOriginal')} aria-label={t('image.openOriginal')} aria-busy={item.status === 'uploading'} onClick={() => setPreview(item)}>
+                        <img src={item.url} alt={label} />
+                      </button>
+                    )}
+                    {item.status === 'uploading' && <span className={css.progressTrack} aria-hidden><span className={css.progressBar} /></span>}
+                    <button type="button" className={css.remove} aria-label={t('image.remove', { name: label })} onClick={() => removeAttachment(item.key)}>
+                      <IconCloseFillRegular size={12} />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
           <textarea
             ref={area}
             className={css.textarea}
@@ -126,6 +217,12 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
             aria-label={t('composer.placeholder', { name })}
             disabled={blocked || needsWorkspace}
             onChange={event => setText(event.target.value)}
+            onPaste={event => {
+              const files = event.clipboardData?.files ?? []
+              if (files.length === 0) return
+              event.preventDefault()
+              addFiles(files)
+            }}
             onCompositionStart={() => { composing.current = true }}
             onCompositionEnd={() => { composing.current = false }}
             onKeyDown={event => {
@@ -227,8 +324,16 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
             </div>
           </div>
         </div>
-        <div className={css.hint}>{t('composer.hint')}</div>
+        <div className={cx(css.hint, notice !== null && css.hintError)} role={notice !== null ? 'alert' : undefined}>{notice ?? t('composer.hint')}</div>
       </div>
+      {preview !== null && (
+        <ImageLightbox
+          src={preview.url}
+          alt={preview.file.name || t('image.original')}
+          labels={{ dialog: t('image.preview'), close: t('image.closePreview') }}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   )
 }

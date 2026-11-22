@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { createRequire } from 'node:module'
+import { solidPng } from './png.mjs'
 
 const require = createRequire('/Volumes/Data/Projects/GitHub/deepseek-harness/package.json')
 const { chromium } = require(process.env.PLAYWRIGHT_PATH ?? '/Volumes/Data/Projects/GitHub/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright')
@@ -21,8 +22,11 @@ await page.addInitScript(() => {
   localStorage.setItem('dsh.agents.view.v1', JSON.stringify({ source: 'dsh', selected: {}, query: '', expanded: {}, showHidden: false, groupBy: 'project' }))
 })
 const errors = []
+let expectUploadFailure = false
 page.on('console', msg => {
-  if (msg.type() === 'error' || msg.type() === 'warning') errors.push(`[console.${msg.type()}] ${msg.text()}`)
+  if (msg.type() !== 'error' && msg.type() !== 'warning') return
+  if (expectUploadFailure && /agent-cli\.upload|Failed to load resource/.test(`${msg.text()} ${msg.location()?.url ?? ''}`)) return
+  errors.push(`[console.${msg.type()}] ${msg.text()}`)
 })
 page.on('pageerror', error => errors.push(`[pageerror] ${error.message}`))
 const shot = name => page.screenshot({ path: join(out, `${name}.png`), fullPage: false })
@@ -295,6 +299,62 @@ if (!skipTurns) await step('approval-turn', async () => {
   }, { timeout: 90_000 })
   await page.waitForTimeout(1500)
   await shot('ui-06c-tool-done')
+})
+
+if (!skipTurns) await step('image-paste', async () => {
+  const png = solidPng(160, 120, [220, 40, 40]).toString('base64')
+  writeFileSync(join(out, 'probe-image.png'), Buffer.from(png, 'base64'))
+  const paste = (name, type, b64) => page.evaluate(({ name, type, b64 }) => {
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+    const transfer = new DataTransfer()
+    transfer.items.add(new File([bytes], name, { type }))
+    const area = document.querySelector('[class*="dag-textarea"]')
+    area.focus()
+    area.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }))
+  }, { name, type, b64 })
+  const items = page.locator('[class*="dag-imageItem"]')
+  const send = page.locator('button[aria-label="Send"], button[aria-label="发送"]')
+  expectUploadFailure = true
+  await page.route('**/api/agent-cli.upload**', route => route.abort())
+  await paste('probe.png', 'image/png', png)
+  await page.locator('[class*="dag-imageItem"][data-status="error"]').waitFor({ timeout: 15_000 })
+  if (!(await send.isDisabled())) throw new Error('send stayed enabled while an upload had failed')
+  await shot('ui-06d-image-upload-error')
+  await page.unroute('**/api/agent-cli.upload**')
+  await items.first().locator('button[aria-label="上传失败，点击重试"], button[aria-label="Upload failed; click to retry"]').click()
+  await page.locator('[class*="dag-imageItem"][data-status="ready"]').waitFor({ timeout: 15_000 })
+  expectUploadFailure = false
+  await paste('notes.txt', 'text/plain', Buffer.from('hello').toString('base64'))
+  await page.waitForTimeout(300)
+  if (await items.count() !== 1) throw new Error('an unsupported paste entered the rail')
+  const hint = await page.locator('[class*="dag-hintError"]').textContent()
+  if (!/仅支持|Only PNG/.test(hint ?? '')) throw new Error(`no unsupported-type notice: ${hint}`)
+  await paste('second.png', 'image/png', png)
+  await page.waitForFunction(() => document.querySelectorAll('[class*="dag-imageItem"][data-status="ready"]').length === 2, { timeout: 15_000 })
+  await items.nth(1).hover()
+  await items.nth(1).locator('button[aria-label^="移除图片"], button[aria-label^="Remove image"]').click()
+  await page.waitForTimeout(200)
+  if (await items.count() !== 1) throw new Error('remove did not drop the thumbnail')
+  await shot('ui-06e-image-pasted')
+  await items.first().locator('button[aria-label="查看原图"], button[aria-label="View original"]').click()
+  await page.locator('[role="dialog"][aria-label="原图预览"], [role="dialog"][aria-label="Original image preview"]').waitFor({ timeout: 5000 })
+  await shot('ui-06f-image-lightbox')
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(300)
+  await page.locator('[class*="dag-textarea"]').fill('What color is this image? Answer with one word.')
+  await send.click()
+  await page.locator('[class*="dag-userImages"] img').first().waitFor({ timeout: 30_000 })
+  await page.waitForFunction(() => { const img = document.querySelector('[class*="dag-userImages"] img'); return img !== null && img.complete && img.naturalWidth > 0 }, { timeout: 15_000 })
+  const fit = await page.evaluate(() => { const r = document.querySelector('[class*="dag-userImages"] button').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) } })
+  if (fit.w > 240 || fit.h > 240 || fit.w < 100) throw new Error(`lone image not bounded to 240px: ${JSON.stringify(fit)}`)
+  if (await items.count() !== 0) throw new Error('composer kept its thumbnails after a successful send')
+  await page.locator('[class*="dag-assistantRow"]').filter({ hasText: /red/i }).first().waitFor({ timeout: 90_000 })
+  await page.waitForTimeout(1500)
+  await shot('ui-06g-image-turn')
+  const current = await page.locator('[data-row-key^="agent:claude:"][aria-selected="true"]').getAttribute('data-row-key')
+  await page.locator(`[data-row-key="${current}"]`).click()
+  await page.waitForFunction(() => /1 张图片|1 images/.test(document.querySelector('[class*="dag-transcript"]')?.textContent ?? ''), { timeout: 30_000 })
+  await shot('ui-06h-image-history')
 })
 
 await step('switch-codex', async () => {
