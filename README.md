@@ -31,7 +31,6 @@ client (lib/client.js)                    host (src/index.js)
     claude: { enabled: true, command: claude, home: '' }   # home '' → ~/.claude
     codex:  { enabled: true, command: codex,  home: '' }   # home '' → default; set → CODEX_HOME
     turnRetentionMs: 600000
-    abandonTimeoutMs: 300000
 ```
 
 ## Dev

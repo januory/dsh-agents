@@ -30,7 +30,7 @@ function fakeProvider(overrides = {}) {
 }
 
 test('turn manager numbers events, gates approvals and guards one turn per session', async () => {
-  const turns = new TurnManager({ retentionMs: 60_000, abandonTimeoutMs: 60_000 })
+  const turns = new TurnManager({ retentionMs: 60_000 })
   let handle
   const provider = fakeProvider({
     async startTurn(request, sink) {
@@ -67,7 +67,7 @@ test('turn manager numbers events, gates approvals and guards one turn per sessi
 })
 
 test('turn manager reports start failures and empty input', async () => {
-  const turns = new TurnManager({ retentionMs: 60_000, abandonTimeoutMs: 60_000 })
+  const turns = new TurnManager({ retentionMs: 60_000 })
   await assert.rejects(() => turns.start(fakeProvider(), { cwd: '/p', text: '  ' }), /empty/)
   await assert.rejects(() => turns.start(fakeProvider(), { cwd: '/p', text: '', images: [] }), /empty/)
   await assert.rejects(() => turns.start(fakeProvider(), { cwd: '', text: 'x' }), /working directory/)
@@ -82,7 +82,7 @@ test('turn manager reports start failures and empty input', async () => {
 })
 
 test('turn manager steers a live turn and rejects a dead or steerless one', async () => {
-  const turns = new TurnManager({ retentionMs: 60_000, abandonTimeoutMs: 60_000 })
+  const turns = new TurnManager({ retentionMs: 60_000 })
   const provider = fakeProvider({
     async startTurn(request, sink) {
       sink.setSession('s1')
@@ -107,6 +107,25 @@ test('turn manager steers a live turn and rejects a dead or steerless one', asyn
   await assert.rejects(() => turns.steer('missing', { text: 'x' }), error => error.code === 'not-live')
   const plain = await turns.start(fakeProvider(), { cwd: '/p', text: 'x' })
   await assert.rejects(() => turns.steer(plain.turnId, { text: 'y' }), error => error.code === 'not-live')
+  turns.dispose()
+})
+
+test('a live turn survives without a reader; finished turns are reaped', async () => {
+  const turns = new TurnManager({ retentionMs: 40 })
+  let cancelled = 0
+  const provider = fakeProvider({
+    async startTurn(request, sink) {
+      sink.setSession('s1')
+      return { cancel: () => { cancelled += 1; sink.finish({ status: 'cancelled' }) }, answer: () => {}, dispose: () => {}, sink }
+    },
+  })
+  const { turnId } = await turns.start(provider, { cwd: '/p', text: 'hi' })
+  await new Promise(r => setTimeout(r, 150))
+  assert.equal(cancelled, 0)
+  assert.equal(turns.poll(turnId, 0).status, 'running')
+  turns.cancel(turnId)
+  await new Promise(r => setTimeout(r, 150))
+  assert.throws(() => turns.poll(turnId, 0), /no longer exists/)
   turns.dispose()
 })
 

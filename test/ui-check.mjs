@@ -284,6 +284,23 @@ if (!skipTurns) await step('resume-turn', async () => {
   await shot('ui-06-resumed')
 })
 
+if (!skipTurns) await step('draft-retention', async () => {
+  const area = page.locator('[class*="dag-textarea"]')
+  const rowKey = await page.locator('[data-row-key^="agent:claude:"][aria-selected="true"]').getAttribute('data-row-key')
+  const draftKey = `claude:${rowKey.replace('agent:claude:', '')}`
+  await area.fill('draft retention probe')
+  const stored = await page.evaluate(k => localStorage.getItem(`dsh.agents.draft.v1.${k}`), draftKey)
+  if (stored !== 'draft retention probe') throw new Error(`draft not persisted: ${stored}`)
+  await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
+  await page.waitForTimeout(600)
+  if ((await area.inputValue()) !== '') throw new Error('new session should not inherit the other draft')
+  await page.evaluate(k => { document.querySelector(`[data-row-key="${k}"]`).click() }, rowKey)
+  await page.waitForTimeout(800)
+  if ((await area.inputValue()) !== 'draft retention probe') throw new Error('draft not restored on return')
+  await shot('ui-06b-draft-restored')
+  await area.fill('')
+})
+
 if (!skipTurns) await step('steer-turn', async () => {
   const area = page.locator('[class*="dag-textarea"]')
   const send = page.locator('button[aria-label="Send"], button[aria-label="发送"]')
@@ -332,6 +349,24 @@ if (!skipTurns) await step('approval-turn', async () => {
   await shot('ui-06c-tool-done')
 })
 
+if (!skipTurns) await step('tool-image-preview', async () => {
+  writeFileSync(join(out, 'probe-image.png'), solidPng(160, 120, [220, 40, 40]))
+  const area = page.locator('[class*="dag-textarea"]')
+  await area.fill('Use the Read tool to read the image file at ../probe-image.png, then reply with its color in one word.')
+  await page.locator('button[aria-label="Send"], button[aria-label="发送"]').click()
+  const pending = page.locator('[class*="dag-approval"][role="alertdialog"]').first()
+  await pending.waitFor({ timeout: 90_000 })
+  await pending.getByRole('button', { name: /^(Allow|允许)$/ }).click()
+  const thumb = page.locator('[class*="dag-disclosure"] button[aria-label="查看原图"], [class*="dag-disclosure"] button[aria-label="View original"]').first()
+  await thumb.waitFor({ timeout: 90_000 })
+  await page.waitForFunction(() => { const img = document.querySelector('[class*="dag-disclosure"] [class*="imageFrame"] img'); return img !== null && img.complete && img.naturalWidth > 0 }, { timeout: 30_000 })
+  await shot('ui-06d-tool-image')
+  await thumb.click()
+  await page.locator('[role="dialog"][aria-label="原图预览"], [role="dialog"][aria-label="Original image preview"]').waitFor({ timeout: 5000 })
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => document.querySelector('[class*="dag-statusLive"]') === null, { timeout: 60_000 })
+})
+
 if (!skipTurns) await step('steer-mid-tool', async () => {
   const area = page.locator('[class*="dag-textarea"]')
   await area.fill('Use the Bash tool to run `touch ui-probe-steer.txt && sleep 8 && echo first`, then reply with exactly FIRST.')
@@ -346,6 +381,20 @@ if (!skipTurns) await step('steer-mid-tool', async () => {
   await page.waitForFunction(() => document.querySelector('[class*="dag-statusLive"]') === null && document.querySelector('[class*="dag-statusError"]') === null, { timeout: 60_000 })
   await page.waitForTimeout(1000)
   await shot('ui-06c-steer-tool')
+})
+
+if (!skipTurns) await step('offline-recovery', async () => {
+  const area = page.locator('[class*="dag-textarea"]')
+  await area.fill('Think carefully and write a 150-word story about a lighthouse. End your reply with exactly OFFLINEOK.')
+  await page.locator('button[aria-label="Send"], button[aria-label="发送"]').click()
+  await page.locator('[class*="dag-statusLive"]').waitFor({ timeout: 30_000 })
+  await page.context().setOffline(true)
+  await page.waitForTimeout(2500)
+  await page.context().setOffline(false)
+  await page.locator('[class*="dag-assistantRow"]').filter({ hasText: 'OFFLINEOK' }).first().waitFor({ timeout: 180_000 })
+  await page.waitForFunction(() => document.querySelector('[class*="dag-statusLive"]') === null, null, { timeout: 60_000 })
+  if (await page.locator('[class*="dag-statusError"]').count() !== 0) throw new Error('offline gap surfaced a turn error instead of recovering')
+  await shot('ui-06e-offline-recovered')
 })
 
 if (!skipTurns) await step('image-paste', async () => {

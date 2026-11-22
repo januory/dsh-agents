@@ -37,12 +37,17 @@
   overflow-wrap: anywhere;
 }
 
-.userImages {
+.userImages,
+.toolImages {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
   max-width: 100%;
+}
+
+.toolImages {
+  justify-content: flex-start;
 }
 
 .imageFrame {

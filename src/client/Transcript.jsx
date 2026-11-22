@@ -162,7 +162,7 @@ const ThinkingItem = memo(function ThinkingItem({ event, t }) {
 })
 
 const ToolItem = memo(function ToolItem({ event, t }) {
-  const [open, setOpen] = useState(false)
+  const [manual, setManual] = useState(null)
   const kind = toolKind(event.name)
   const Icon = TOOL_ICONS[kind] ?? IconCodeOutlineMedium
   const running = event.status === 'running'
@@ -171,19 +171,27 @@ const ToolItem = memo(function ToolItem({ event, t }) {
   const input = event.input ?? {}
   const output = event.output ?? (typeof event.inputText === 'string' ? event.inputText : '')
   const diff = kind === 'edit' ? diffTextOf(event) : ''
+  const images = event.images ?? []
+  // Image reads open so the preview is visible; a manual toggle wins.
+  const open = manual ?? images.length > 0
+  const thumbs = images.length > 0 ? (
+    <div className={css.toolImages}>
+      {images.map(image => <UserImage key={image.id} id={image.id} single={images.length === 1} t={t} />)}
+    </div>
+  ) : null
   let body
   if (kind === 'bash') {
     body = <TerminalBlock command={String(input.command ?? '')} cwd={typeof input.cwd === 'string' ? input.cwd : undefined} output={output} exitCode={event.exitCode} running={running} labels={terminalLabels(t)} maxLines={12} />
   } else if (diff !== '') {
     body = <CodeBlock code={diff} lang={kind === 'edit' && typeof input.content === 'string' && !event.structured ? langOf(input.file_path) : 'diff'} diff={!(typeof input.content === 'string' && !event.structured)} copyLabel={t('copy')} copiedLabel={t('copied')} />
-  } else if (kind === 'read' && output !== '') {
+  } else if (kind === 'read' && output !== '' && images.length === 0) {
     body = <CodeBlock code={output} lang={langOf(input.file_path ?? input.path)} lineNumbers copyLabel={t('copy')} copiedLabel={t('copied')} />
   } else {
     body = (
       <div className={css.genericTool}>
         {input !== null && typeof input === 'object' && Object.keys(input).length > 0 && <JsonTree data={input} label={t('tool.input')} labels={jsonLabels(t)} collapsedStringLines={4} />}
-        {output !== '' && <CodeBlock code={output} copyLabel={t('copy')} copiedLabel={t('copied')} />}
-        {output === '' && !running && <div className={css.muted}>{t('tool.noOutput')}</div>}
+        {output !== '' && images.length === 0 && <CodeBlock code={output} copyLabel={t('copy')} copiedLabel={t('copied')} />}
+        {output === '' && images.length === 0 && !running && <div className={css.muted}>{t('tool.noOutput')}</div>}
       </div>
     )
   }
@@ -195,13 +203,13 @@ const ToolItem = memo(function ToolItem({ event, t }) {
       expandable
       expandOnRowClick
       running={running}
-      onToggle={() => setOpen(v => !v)}
+      onToggle={() => setManual(!open)}
       className={cx(css.disclosure, failed && css.failed)}
       rowClassName={css.toolRow}
       titleClassName={kind === 'bash' ? css.mono : undefined}
       headerAccessory={failed ? <Tag tone="danger">{t('tool.error')}</Tag> : event.exitCode !== undefined && event.exitCode !== 0 ? <Tag tone="warning">{t('tool.exitCode', { code: event.exitCode })}</Tag> : undefined}
     >
-      <div className={css.disclosureContent}>{body}</div>
+      <div className={css.disclosureContent}>{thumbs}{body}</div>
     </DisclosureRow>
   )
 })

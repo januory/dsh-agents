@@ -16,11 +16,11 @@ export function apply(ctx) {
   const t = ctx.locale.bind(NS)
   const controller = new AgentCliController(async (method, ...args) => {
     const namespace = ctx.get(`remote.${NAMESPACE}`)
-    if (namespace === undefined) return { ok: false, error: 'agent-cli remote is not mounted' }
+    if (namespace === undefined) return { ok: false, transport: true, error: 'agent-cli remote is not mounted' }
     try {
       return unwrap(await namespace[method](...args))
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      return { ok: false, transport: true, error: error instanceof Error ? error.message : String(error) }
     }
   })
 

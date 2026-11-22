@@ -5,6 +5,7 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
+import { holdAttachments, readDraft, takeAttachments, writeDraft } from './drafts.js'
 import { effortLabel, modeLabel } from './labels.js'
 import { IMAGE_TYPES, MAX_IMAGE_BYTES, uploadImage } from './uploads.js'
 import { WorkspaceSelect } from './WorkspaceSelect.jsx'
@@ -60,15 +61,15 @@ function SendGlyph({ kind }) {
  * left and the model chip plus the round send button right. Both chips carry
  * the CLI's own options; empty means the CLI's own default.
  */
-export function Composer({ t, name, provider, session, isNew, hero, busy, sending, disabledReason, launch, models, workspaces, initialCwd, newNonce, onSend, onStop, onLaunch, pickDirectory, addWorkspace }) {
-  const [text, setText] = useState('')
+export function Composer({ t, name, provider, session, isNew, hero, busy, sending, disabledReason, launch, models, workspaces, initialCwd, newNonce, draftKey, onSend, onStop, onLaunch, pickDirectory, addWorkspace }) {
+  const [text, setText] = useState(() => readDraft(draftKey))
   const [cwd, setCwd] = useState(initialCwd ?? '')
   const [modeOpen, setModeOpen] = useState(false)
   const [effortOpen, setEffortOpen] = useState(false)
   const [modelOpen, setModelOpen] = useState(false)
   const [modelQuery, setModelQuery] = useState('')
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
-  const [attachments, setAttachments] = useState([])
+  const [attachments, setAttachments] = useState(() => takeAttachments(draftKey))
   const [notice, setNotice] = useState(null)
   const [preview, setPreview] = useState(null)
   const [dragging, setDragging] = useState(false)
@@ -104,9 +105,14 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
     if (item !== undefined) release(item)
     setAttachments(list => list.filter(entry => entry.key !== key))
   }
-  const sessionKey = `${session?.id ?? ''}:${newNonce}`
-  useEffect(() => { clearAttachments() }, [sessionKey])
-  useEffect(() => () => { for (const item of held.current) release(item) }, [])
+  // The composer is keyed per session, so leaving hands settled attachments back
+  // to the draft store (object URLs cannot survive a reload); in-flight uploads
+  // are dropped because their tracker is going away.
+  useEffect(() => () => {
+    const keep = held.current.filter(item => item.status !== 'uploading')
+    for (const item of held.current) if (item.status === 'uploading') release(item)
+    holdAttachments(draftKey, keep)
+  }, [draftKey])
   useEffect(() => {
     if (preview !== null && !attachments.some(item => item.key === preview.key)) setPreview(null)
   }, [attachments, preview])
@@ -148,6 +154,7 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
     const images = readyImages.map(item => ({ id: item.id, mediaType: item.file.type }))
     const answer = onSend({ text: text.trim(), cwd: isNew ? cwd : undefined, options: { permissionMode, model }, ...(images.length > 0 ? { images } : {}) })
     setText('')
+    writeDraft(draftKey, '')
     // Keep the thumbnails if the send failed so the same images can go again.
     void Promise.resolve(answer).then(result => { if (result?.ok !== false) clearAttachments() })
   }
@@ -220,7 +227,7 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
             placeholder={needsWorkspace ? t('workspace.choose') : isNew ? t('composer.placeholderNew', { name, cwd }) : t('composer.placeholder', { name })}
             aria-label={t('composer.placeholder', { name })}
             disabled={blocked || needsWorkspace}
-            onChange={event => setText(event.target.value)}
+            onChange={event => { setText(event.target.value); writeDraft(draftKey, event.target.value) }}
             onPaste={event => {
               const files = event.clipboardData?.files ?? []
               if (files.length === 0) return

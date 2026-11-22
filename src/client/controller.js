@@ -57,15 +57,30 @@ export class AgentCliController {
     this.pollTimer = undefined
     this.listTimer = undefined
     this.pollSeq = 0
+    this.pollRetries = 0
+    this.polling = false
     this.turnId = undefined
     this.disposed = false
     this.onVisibility = () => {
-      if (document.visibilityState === 'visible' && this.view.getSnapshot().source !== 'dsh') void this.refreshSessions()
+      if (document.visibilityState !== 'visible') return
+      if (this.view.getSnapshot().source !== 'dsh') void this.refreshSessions()
+      this.#resumePoll()
     }
+    this.onOnline = () => { this.#resumePoll() }
+  }
+
+  // Returning from a mobile background / offline: the carrier may have dropped
+  // while away, so resume the turn immediately instead of waiting out a backoff.
+  #resumePoll() {
+    if (this.turnId === undefined) return
+    if (this.pollTimer !== undefined) clearTimeout(this.pollTimer)
+    this.pollRetries = 0
+    void this.#poll()
   }
 
   async init() {
     document.addEventListener('visibilitychange', this.onVisibility)
+    window.addEventListener('online', this.onOnline)
     await Promise.all([this.loadProviders(), this.loadSettings()])
     const source = this.view.getSnapshot().source
     if (source !== 'dsh') this.setSource(source)
@@ -74,6 +89,7 @@ export class AgentCliController {
   dispose() {
     this.disposed = true
     document.removeEventListener('visibilitychange', this.onVisibility)
+    window.removeEventListener('online', this.onOnline)
     this.#stopPolling()
     this.#stopListWatcher()
   }
@@ -375,21 +391,46 @@ export class AgentCliController {
     this.#stopPolling()
     this.turnId = turnId
     this.pollSeq = fromSeq
+    this.pollRetries = 0
     this.transcript.update(d => { d.turn = { id: turnId, status: 'running', error: null, startedAt: startedAt ?? Date.now() } })
     void this.#poll()
   }
 
   async #poll() {
     const turnId = this.turnId
-    if (turnId === undefined || this.disposed) return
+    if (turnId === undefined || this.disposed || this.polling) return
+    this.polling = true
+    try {
+      await this.#pollOnce(turnId)
+    } finally {
+      this.polling = false
+    }
+  }
+
+  async #pollOnce(turnId) {
     const key = this.transcript.getSnapshot().key
     const answer = await this.call('pollTurn', turnId, this.pollSeq)
     if (this.disposed || this.turnId !== turnId) return
     if (!answer.ok) {
-      this.transcript.update(d => { d.turn = { id: turnId, status: 'error', error: answer.error } })
+      if (answer.transport) {
+        // Carrier dropped (mobile background / offline): the turn still runs on
+        // the host, so keep it and retry with backoff rather than erroring out.
+        this.pollRetries = Math.min(this.pollRetries + 1, 6)
+        this.pollTimer = setTimeout(() => { void this.#poll() }, Math.min(8000, 400 * 2 ** this.pollRetries))
+        return
+      }
+      // The host no longer knows the turn (reaped after retention): reload the
+      // transcript, which reattaches to any live turn or falls back to history.
       this.turnId = undefined
+      const current = this.transcript.getSnapshot()
+      if (current.provider !== null && current.session?.id !== undefined) {
+        void this.open(current.provider, current.session.id)
+        return
+      }
+      this.transcript.update(d => { d.turn = { id: turnId, status: 'error', error: answer.error } })
       return
     }
+    this.pollRetries = 0
     this.pollSeq = answer.seq
     const current = this.transcript.getSnapshot()
     if (current.key === key || answer.sessionId !== undefined) {

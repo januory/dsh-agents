@@ -58,10 +58,12 @@ export const INVOCATIONS = [
  * @returns {{ ok: boolean, [key: string]: unknown }}
  */
 export function unwrap(answer) {
-  if (answer === undefined || answer === null) return { ok: false, error: 'no response' }
+  if (answer === undefined || answer === null) return { ok: false, transport: true, error: 'no response' }
+  // ok:false is the gateway's own failure branch (carrier offline / transport
+  // fault); a host error travels inside the ok:true value as { ok:false }.
   if (answer.ok === false) {
     const error = answer.error
-    return { ok: false, error: error && error.message ? error.message : String(error ?? 'call failed') }
+    return { ok: false, transport: true, error: error && error.message ? error.message : String(error ?? 'call failed') }
   }
   const value = answer.value
   return value && typeof value === 'object' ? value : { ok: false, error: 'empty result' }

@@ -1,4 +1,17 @@
+import { readFileSync } from 'node:fs'
+import { saveUpload } from '../uploads.js'
+
 const MAX_OUTPUT = 64 * 1024
+const IMAGE_EXT = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }
+
+// ViewImage points at a local file the agent read; copy it into uploads so the
+// transcript can offer a clickable preview.
+function fileImages(path) {
+  if (typeof path !== 'string') return undefined
+  const mediaType = IMAGE_EXT[path.split('.').pop()?.toLowerCase()]
+  if (mediaType === undefined) return undefined
+  try { return [{ id: saveUpload(mediaType, readFileSync(path)), mediaType }] } catch { return undefined }
+}
 
 function cap(text) {
   if (typeof text !== 'string') return ''
@@ -104,8 +117,10 @@ export function codexItemToEvent(item, ts, done) {
       return { id, type: 'tool', ts, name: item.name, output: cap(typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '')), status: 'done' }
     case 'webSearch':
       return { id, type: 'tool', ts, name: 'WebSearch', input: { query: item.query ?? '' }, output: cap(item.action ? JSON.stringify(item.action) : ''), status: done ? 'done' : 'running' }
-    case 'imageView':
-      return { id, type: 'tool', ts, name: 'ViewImage', input: { path: item.path }, status: 'done' }
+    case 'imageView': {
+      const images = fileImages(item.path)
+      return { id, type: 'tool', ts, name: 'ViewImage', input: { path: item.path }, status: 'done', ...(images ? { images } : {}) }
+    }
     case 'plan':
       return { id, type: 'assistant', ts, text: item.text ?? '', done }
     case 'contextCompaction':

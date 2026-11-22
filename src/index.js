@@ -21,7 +21,6 @@ export const Config = z.object({
   claude: ProviderConfig,
   codex: ProviderConfig,
   turnRetentionMs: z.number().step(1).min(1_000).default(10 * 60_000),
-  abandonTimeoutMs: z.number().step(1).min(10_000).default(5 * 60_000),
 })
 
 const DETECT_TTL_MS = 60_000
@@ -35,7 +34,6 @@ export function apply(ctx, config) {
   ctx.provide(REGISTRY_KEY, registry)
   const turns = new TurnManager({
     retentionMs: config.turnRetentionMs,
-    abandonTimeoutMs: config.abandonTimeoutMs,
     logger: ctx.logger,
   })
   ctx.effect(() => () => turns.dispose(), 'agent-cli: running turns')

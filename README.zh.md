@@ -31,7 +31,6 @@ dsh plugin --profile web add @januory/dsh-agents
     claude: { enabled: true, command: claude, home: '' }   # home 留空 → ~/.claude
     codex:  { enabled: true, command: codex,  home: '' }   # 留空 → 默认；填写 → CODEX_HOME
     turnRetentionMs: 600000
-    abandonTimeoutMs: 300000
 ```
 
 ## 开发

@@ -11,9 +11,8 @@ export class TurnManager {
   #turns = new Map()
   #timer
 
-  constructor({ retentionMs, abandonTimeoutMs, logger }) {
+  constructor({ retentionMs, logger }) {
     this.retentionMs = retentionMs
-    this.abandonTimeoutMs = abandonTimeoutMs
     this.logger = logger
     this.#timer = setInterval(() => this.#reap(), Math.min(retentionMs, 10_000))
     this.#timer.unref?.()
@@ -164,17 +163,11 @@ export class TurnManager {
   #reap() {
     const now = Date.now()
     for (const [id, turn] of this.#turns) {
-      const idle = now - turn.lastPoll
-      if (LIVE_STATES.has(turn.status)) {
-        if (idle > this.abandonTimeoutMs) {
-          this.logger?.info(`agent-cli: cancelling ${turn.providerId} turn ${id} after ${idle}ms without a reader`)
-          turn.handle?.cancel()
-          turn.handle?.dispose()
-          this.#turns.delete(id)
-        }
-        continue
-      }
-      if (idle > this.retentionMs) {
+      // A live turn keeps running even when its reader goes away (mobile
+      // background / offline); cancelling it here would interrupt the user's
+      // work. Only finished turns are cleaned up after the retention window.
+      if (LIVE_STATES.has(turn.status)) continue
+      if (now - turn.lastPoll > this.retentionMs) {
         turn.handle?.dispose()
         this.#turns.delete(id)
       }

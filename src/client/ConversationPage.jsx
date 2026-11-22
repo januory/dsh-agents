@@ -62,8 +62,11 @@ export function ConversationPage(props) {
 
   const title = session === null ? t('page.new', { name }) : (session.title || t('row.untitled'))
   const blank = isNew && transcript.events.length === 0 && !transcript.sending && transcript.error === null
+  const draftKey = `${source}:${session?.id ?? 'new'}`
   const composer = (
     <Composer
+      key={draftKey}
+      draftKey={draftKey}
       t={t}
       name={name}
       provider={provider}

@@ -1,3 +1,5 @@
+import { saveUpload } from '../uploads.js'
+
 const MAX_OUTPUT = 64 * 1024
 const MAX_STRUCTURED = 32 * 1024
 
@@ -19,6 +21,21 @@ export function resultText(content) {
     if (block.type === 'image') return '[image]'
     return `[${block.type ?? 'block'}]`
   }).join('\n')
+}
+
+// Tool results (e.g. Read on an image) carry base64 blocks; store them so the
+// transcript can offer a clickable preview instead of a "[image]" placeholder.
+export function toolImagesOf(content) {
+  if (!Array.isArray(content)) return undefined
+  const images = []
+  for (const block of content) {
+    if (block.type !== 'image') continue
+    const source = block.source ?? {}
+    if (source.type !== 'base64' || typeof source.data !== 'string') continue
+    const mediaType = source.media_type ?? 'image/png'
+    try { images.push({ id: saveUpload(mediaType, Buffer.from(source.data, 'base64')), mediaType }) } catch {}
+  }
+  return images.length > 0 ? images : undefined
 }
 
 function structuredOf(value) {
@@ -73,6 +90,7 @@ export function parseClaudeRecords(records) {
       if (Array.isArray(content)) {
         for (const block of content) {
           if (block.type !== 'tool_result') continue
+          const images = toolImagesOf(block.content)
           put({
             id: block.tool_use_id,
             type: 'tool',
@@ -81,6 +99,7 @@ export function parseClaudeRecords(records) {
             isError: block.is_error === true,
             status: block.is_error === true ? 'error' : 'done',
             structured: structuredOf(record.toolUseResult),
+            ...(images ? { images } : {}),
           })
         }
       }
@@ -301,6 +320,7 @@ export class ClaudeLive {
     if (!Array.isArray(content)) return
     for (const block of content) {
       if (block.type !== 'tool_result') continue
+      const images = toolImagesOf(block.content)
       this.#emit({
         id: block.tool_use_id,
         type: 'tool',
@@ -309,6 +329,7 @@ export class ClaudeLive {
         isError: block.is_error === true,
         status: block.is_error === true ? 'error' : 'done',
         structured: structuredOf(frame.tool_use_result),
+        ...(images ? { images } : {}),
       })
     }
   }
