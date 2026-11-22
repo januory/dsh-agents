@@ -42,6 +42,7 @@
  * @property {(request: TurnRequest) => void | Promise<void>} [steer] - feed a message into the running turn; throw with code 'not-live' when it ended
  * @property {() => void} cancel
  * @property {(requestId: string, decision: string) => void} answer
+ * @property {(requestId: string, answers: string[][]) => void} [answerQuestion]
  * @property {() => void} dispose
  *
  * @typedef {object} TurnRequest

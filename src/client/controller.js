@@ -358,6 +358,12 @@ export class AgentCliController {
     void this.refreshActive()
   }
 
+  async answerQuestion(requestId, answers) {
+    if (this.turnId === undefined) return
+    await this.call('answerQuestion', this.turnId, requestId, answers)
+    void this.refreshActive()
+  }
+
   async addWorkspace(provider, path) {
     const answer = await this.call('addWorkspace', provider, path)
     if (answer.ok && !this.disposed) this.sessions.update(d => { (d.byProvider[provider] ??= emptyBucket()).workspaces = answer.workspaces })

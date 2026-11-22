@@ -349,6 +349,28 @@ if (!skipTurns) await step('approval-turn', async () => {
   await shot('ui-06c-tool-done')
 })
 
+if (!skipTurns) await step('question-dialog', async () => {
+  const area = page.locator('[class*="dag-textarea"]')
+  await area.fill('Use the AskUserQuestion tool once to ask two questions: a single-select "Which color?" with options Red and Blue, and a multi-select "Which fruits?" with options Apple, Banana and Cherry. After I answer, reply with my choices.')
+  await page.locator('button[aria-label="Send"], button[aria-label="发送"]').click()
+  const card = page.locator('[class*="dag-question"][role="alertdialog"]').first()
+  await card.waitFor({ timeout: 90_000 })
+  const blocks = card.locator('[class*="questionBlock"]')
+  const n = await blocks.count()
+  if (n < 1) throw new Error('question card rendered no questions')
+  for (let i = 0; i < n; i++) {
+    const opts = blocks.nth(i).locator('[class*="questionOption"]')
+    const multi = (await blocks.nth(i).locator('[class*="questionCheckbox"]').count()) > 0
+    await opts.nth(0).click()
+    if (multi && (await opts.count()) > 1) await opts.nth(1).click()
+  }
+  await shot('ui-06g-question')
+  await card.getByRole('button', { name: /^(提交|Submit)$/ }).click()
+  await page.waitForFunction(() => document.querySelector('[class*="dag-question"][role="alertdialog"]') === null, null, { timeout: 30_000 })
+  await page.waitForFunction(() => document.querySelector('[class*="dag-statusLive"]') === null, null, { timeout: 60_000 })
+  await shot('ui-06h-question-answered')
+})
+
 if (!skipTurns) await step('tool-image-preview', async () => {
   writeFileSync(join(out, 'probe-image.png'), solidPng(160, 120, [220, 40, 40]))
   const area = page.locator('[class*="dag-textarea"]')

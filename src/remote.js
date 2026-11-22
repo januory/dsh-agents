@@ -45,6 +45,7 @@ export const INVOCATIONS = [
   invocation('pollTurn', [jsonParameter('turnId'), jsonParameter('afterSeq')]),
   invocation('cancelTurn', [jsonParameter('turnId')]),
   invocation('answerApproval', [jsonParameter('turnId'), jsonParameter('requestId'), jsonParameter('decision')]),
+  invocation('answerQuestion', [jsonParameter('turnId'), jsonParameter('requestId'), jsonParameter('answers')]),
   invocation('renameSession', [jsonParameter('provider'), jsonParameter('sessionId'), jsonParameter('title')]),
   invocation('hideSession', [jsonParameter('provider'), jsonParameter('sessionId'), jsonParameter('hidden')]),
   invocation('addWorkspace', [jsonParameter('provider'), jsonParameter('path')]),

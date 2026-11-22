@@ -87,7 +87,7 @@ export function createCodexProvider(config) {
       rpc.onRequest('item/commandExecution/requestApproval', params => askApproval(params, 'command'))
       rpc.onRequest('item/fileChange/requestApproval', params => askApproval(params, 'file'))
       rpc.onRequest('item/permissions/requestApproval', async () => ({ permissions: {}, scope: 'turn' }))
-      rpc.onRequest('item/tool/requestUserInput', async () => ({ answers: {} }))
+      rpc.onRequest('item/tool/requestUserInput', params => askQuestion(params))
       rpc.onRequest('mcpServer/elicitation/request', async () => ({ action: 'decline', content: null, _meta: null }))
       rpc.onExit(reason => {
         for (const router of routers.values()) router.fail(reason)
@@ -96,7 +96,7 @@ export function createCodexProvider(config) {
         if (client === rpc) client = undefined
       })
       try {
-        await rpc.request('initialize', { clientInfo: { name: 'dsh-agents', title: 'dsh agents', version: '0.1.0' }, capabilities: { experimentalApi: false, requestAttestation: false } })
+        await rpc.request('initialize', { clientInfo: { name: 'dsh-agents', title: 'dsh agents', version: '0.1.0' }, capabilities: { experimentalApi: true, requestAttestation: false } })
         rpc.notify('initialized')
       } catch (error) {
         rpc.close()
@@ -116,6 +116,12 @@ export function createCodexProvider(config) {
     const router = route(params.threadId)
     if (router === undefined) return Promise.resolve({ decision: 'cancel' })
     return router.askApproval(params, kind)
+  }
+
+  function askQuestion(params) {
+    const router = route(params.threadId)
+    if (router === undefined) return Promise.resolve({ answers: {} })
+    return router.askQuestion(params)
   }
 
   async function listAllThreads(rpc) {
@@ -224,6 +230,7 @@ export function createCodexProvider(config) {
 
       const items = new Map()
       const approvals = new Map()
+      const questions = new Map()
       let turnId
       let usage
       let settled = false
@@ -245,6 +252,8 @@ export function createCodexProvider(config) {
         settled = true
         for (const pending of approvals.values()) pending.resolve({ decision: 'cancel' })
         approvals.clear()
+        for (const pending of questions.values()) pending.resolve({ answers: {} })
+        questions.clear()
         routers.delete(threadId)
         sink.finish(result)
         void rpc.request('thread/unsubscribe', { threadId }).catch(() => {})
@@ -263,6 +272,26 @@ export function createCodexProvider(config) {
               input: kind === 'command' ? { command: params.command, cwd: params.cwd } : { grantRoot: params.grantRoot },
               message: params.reason ?? undefined,
               options: ['allow', 'allow_session', 'deny'],
+              status: 'running',
+            })
+          })
+        },
+        askQuestion(params) {
+          const requestId = randomUUID()
+          return new Promise(resolve => {
+            questions.set(requestId, { resolve, params })
+            emit({
+              id: `question:${requestId}`,
+              type: 'question',
+              ts: Date.now(),
+              requestId,
+              questions: (params.questions ?? []).map(q => ({
+                key: q.id,
+                question: q.question,
+                header: q.header,
+                multiSelect: false,
+                options: q.options ?? [],
+              })),
               status: 'running',
             })
           })
@@ -363,6 +392,14 @@ export function createCodexProvider(config) {
           if (pending === undefined) return
           approvals.delete(requestId)
           pending.resolve({ decision: decision === 'deny' ? 'decline' : decision === 'allow_session' ? 'acceptForSession' : 'accept' })
+        },
+        answerQuestion: (requestId, answers) => {
+          const pending = questions.get(requestId)
+          if (pending === undefined) return
+          questions.delete(requestId)
+          pending.resolve({
+            answers: Object.fromEntries((pending.params.questions ?? []).map((q, i) => [q.id, { answers: answers[i] ?? [] }])),
+          })
         },
         dispose: () => {
           finish({ status: 'cancelled' })

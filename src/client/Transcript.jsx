@@ -252,26 +252,103 @@ function CompactItem({ t }) {
   return <div className={css.compactRow}>{t('turn.compact')}</div>
 }
 
-export function TranscriptItem({ event, t, onAnswer }) {
+const QuestionItem = memo(function QuestionItem({ event, t, onQuestion }) {
+  const questions = event.questions ?? []
+  const pending = event.status === 'running'
+  const [selected, setSelected] = useState(() => questions.map(() => []))
+  const [custom, setCustom] = useState(() => questions.map(() => ''))
+  const answersFor = i => {
+    const text = custom[i].trim()
+    if (text !== '') return questions[i].multiSelect ? [...selected[i], text] : [text]
+    return selected[i]
+  }
+  const complete = questions.every((q, i) => answersFor(i).length > 0)
+  const toggle = (i, label) => {
+    setSelected(prev => prev.map((list, j) => {
+      if (j !== i) return list
+      if (questions[i].multiSelect) return list.includes(label) ? list.filter(x => x !== label) : [...list, label]
+      return list.includes(label) ? [] : [label]
+    }))
+    if (!questions[i].multiSelect) setCustom(prev => prev.map((c, j) => (j === i ? '' : c)))
+  }
+  const submit = answers => { if (pending) onQuestion(event.requestId, answers) }
+  return (
+    <div className={cx(css.question, !pending && css.questionResolved)} role={pending ? 'alertdialog' : undefined} aria-label={t('question.title')}>
+      {questions.map((q, i) => (
+        <div key={q.key ?? i} className={css.questionBlock}>
+          {q.header && <div className={css.questionEyebrow}>{q.header}</div>}
+          <div className={css.questionTitle}>{q.question}</div>
+          <div className={css.questionOptions}>
+            {(q.options ?? []).map((opt, oi) => {
+              const on = selected[i].includes(opt.label)
+              return (
+                <div key={opt.label} className={cx(css.questionOptionRow, on && css.questionOptionSelected)}>
+                  <button type="button" className={css.questionOption} disabled={!pending} onClick={() => toggle(i, opt.label)}>
+                    {q.multiSelect
+                      ? <span className={cx(css.questionCheckbox, on && css.questionCheckboxChecked)} aria-hidden>{on && <IconCheckOutlineMedium size={12} />}</span>
+                      : <span className={css.questionNumber} aria-hidden>{oi + 1}</span>}
+                    <span className={css.questionCopy}>
+                      <span className={css.questionLabel}>{opt.label}</span>
+                      {opt.description && <span className={css.questionDesc}>{opt.description}</span>}
+                    </span>
+                  </button>
+                </div>
+              )
+            })}
+            <div className={cx(css.questionOptionRow, css.questionCustomRow, custom[i].trim() !== '' && css.questionOptionSelected)}>
+              <span className={cx(css.questionCheckbox, custom[i].trim() !== '' && css.questionCheckboxChecked)} aria-hidden>{custom[i].trim() !== '' && <IconCheckOutlineMedium size={12} />}</span>
+              <input
+                className={css.questionCustom}
+                value={custom[i]}
+                disabled={!pending}
+                placeholder={t('question.other')}
+                aria-label={t('question.other')}
+                onChange={e => {
+                  const v = e.target.value
+                  setCustom(prev => prev.map((c, j) => (j === i ? v : c)))
+                  if (!questions[i].multiSelect && v.trim() !== '') setSelected(prev => prev.map((list, j) => (j === i ? [] : list)))
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      ))}
+      {pending ? (
+        <div className={css.questionFooter}>
+          <Button variant="primary" size="sm" disabled={!complete} onClick={() => submit(questions.map((q, i) => answersFor(i)))}>{t('question.submit')}</Button>
+          <Button variant="outline" size="sm" onClick={() => submit(questions.map(() => []))}>{t('question.skip')}</Button>
+        </div>
+      ) : (
+        <div className={css.questionAnswered}>
+          {(event.answers ?? []).map((list, i) => (list ?? []).length > 0 && <Tag key={i} tone="quiet">{list.join(', ')}</Tag>)}
+          {(event.answers ?? []).every(list => (list ?? []).length === 0) && <span className={css.muted}>{t('question.skipped')}</span>}
+        </div>
+      )}
+    </div>
+  )
+})
+
+export function TranscriptItem({ event, t, onAnswer, onQuestion }) {
   switch (event.type) {
     case 'user': return <UserItem event={event} t={t} />
     case 'assistant': return <AssistantItem event={event} t={t} />
     case 'thinking': return <ThinkingItem event={event} t={t} />
     case 'tool': return <ToolItem event={event} t={t} />
     case 'approval': return <ApprovalItem event={event} t={t} onAnswer={onAnswer} />
+    case 'question': return <QuestionItem event={event} t={t} onQuestion={onQuestion} />
     case 'error': return <ErrorItem event={event} />
     case 'turn': return event.reason === 'compact' ? <CompactItem t={t} /> : null
     default: return null
   }
 }
 
-export function Transcript({ events, limit, t, onAnswer, onEarlier }) {
+export function Transcript({ events, limit, t, onAnswer, onQuestion, onEarlier }) {
   const start = Math.max(0, events.length - limit)
   const shown = events.slice(start)
   return (
     <div className={css.transcript}>
       {start > 0 && <button type="button" className={css.earlier} onClick={onEarlier}>{t('page.earlier', { n: Math.min(start, 300) })}</button>}
-      {shown.map(event => <TranscriptItem key={event.id} event={event} t={t} onAnswer={onAnswer} />)}
+      {shown.map(event => <TranscriptItem key={event.id} event={event} t={t} onAnswer={onAnswer} onQuestion={onQuestion} />)}
     </div>
   )
 }

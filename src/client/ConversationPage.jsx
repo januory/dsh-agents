@@ -29,7 +29,7 @@ function useStickToBottom(dep) {
  * composer below. It is a root main panel, so it carries no dsh session.
  */
 export function ConversationPage(props) {
-  const { t, useAgentView, useAgentTranscript, useAgentProviders, useAgentSessions, useAgentSettings, useAgentModels, send, cancel, answer, showEarlier, setSource, setLaunch, pickDirectory, addWorkspace } = props
+  const { t, useAgentView, useAgentTranscript, useAgentProviders, useAgentSessions, useAgentSettings, useAgentModels, send, cancel, answer, answerQuestion, showEarlier, setSource, setLaunch, pickDirectory, addWorkspace } = props
   const source = useAgentView(s => s.source)
   const transcript = useAgentTranscript(s => s)
   const providers = useAgentProviders(s => s.list)
@@ -141,7 +141,7 @@ export function ConversationPage(props) {
               ) : (
                 <>
                   {session?.hasEarlier && <div className={css.truncated}>{t('page.truncated')}</div>}
-                  <Transcript events={transcript.events} limit={transcript.historyLimit} t={t} onAnswer={answer} onEarlier={showEarlier} />
+                  <Transcript events={transcript.events} limit={transcript.historyLimit} t={t} onAnswer={answer} onQuestion={answerQuestion} onEarlier={showEarlier} />
                 </>
               )}
           {transcript.turn !== null && transcript.turn.status !== 'done' && (

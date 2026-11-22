@@ -217,6 +217,7 @@ export function createClaudeProvider(config) {
       const live = new ClaudeLive(sink, { turnKey })
       live.start(request.text, request.images)
       const approvals = new Map()
+      const questions = new Map()
       // Messages written but not yet replayed by the CLI: a result arriving
       // while one is still queued means the CLI will run it as another turn.
       const queued = []
@@ -233,6 +234,24 @@ export function createClaudeProvider(config) {
       }
       const onControlRequest = frame => {
         const req = frame.request ?? {}
+        if (req.subtype === 'can_use_tool' && req.tool_name === 'AskUserQuestion') {
+          questions.set(frame.request_id, req.input ?? {})
+          sink.emit({
+            id: `question:${frame.request_id}`,
+            type: 'question',
+            ts: Date.now(),
+            requestId: frame.request_id,
+            questions: (req.input?.questions ?? []).map(q => ({
+              key: q.question,
+              question: q.question,
+              header: q.header,
+              multiSelect: q.multiSelect === true,
+              options: q.options ?? [],
+            })),
+            status: 'running',
+          })
+          return
+        }
         if (req.subtype === 'can_use_tool') {
           const suggestions = Array.isArray(req.permission_suggestions) ? req.permission_suggestions : []
           approvals.set(frame.request_id, { input: req.input, suggestions })
@@ -334,6 +353,17 @@ export function createClaudeProvider(config) {
           if (decision === 'deny') respond(requestId, { behavior: 'deny', message: 'The user denied this tool use.' })
           else if (decision === 'allow_session') respond(requestId, { behavior: 'allow', updatedInput: pending.input, updatedPermissions: pending.suggestions })
           else respond(requestId, { behavior: 'allow', updatedInput: pending.input })
+        },
+        answerQuestion: (requestId, answers) => {
+          const input = questions.get(requestId)
+          if (input === undefined) return
+          questions.delete(requestId)
+          const map = {}
+          for (const [i, q] of (input.questions ?? []).entries()) {
+            const list = answers[i] ?? []
+            map[q.question] = q.multiSelect === true ? list : (list[0] ?? '')
+          }
+          respond(requestId, { behavior: 'allow', updatedInput: { ...input, answers: map } })
         },
         dispose: () => {
           if (killTimer !== undefined) clearTimeout(killTimer)

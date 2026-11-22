@@ -57,6 +57,7 @@ export function apply(ctx) {
     send: (provider, request) => controller.send(provider, request),
     cancel: () => controller.cancel(),
     answer: (requestId, decision) => controller.answer(requestId, decision),
+    answerQuestion: (requestId, answers) => controller.answerQuestion(requestId, answers),
     saveSettings: providers => controller.saveSettings(providers),
     pickDirectory: () => ctx.uiWorkspace.pickDirectory(),
   }

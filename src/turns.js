@@ -52,8 +52,9 @@ export class TurnManager {
       turn.seq += 1
       const normalized = { ...event, seq: turn.seq, id: event.id ?? `${id}:${turn.seq}`, ts: event.ts ?? Date.now() }
       turn.events.push(normalized)
-      if (normalized.type === 'approval' && normalized.status === 'running') turn.status = 'awaiting'
-      else if (turn.status === 'awaiting' && !turn.events.some(e => e.type === 'approval' && e.status === 'running')) turn.status = 'running'
+      const blocking = e => (e.type === 'approval' || e.type === 'question') && e.status === 'running'
+      if (blocking(normalized)) turn.status = 'awaiting'
+      else if (turn.status === 'awaiting' && !turn.events.some(blocking)) turn.status = 'running'
       return normalized
     }
     turn.push = push
@@ -138,6 +139,23 @@ export class TurnManager {
     approval.status = 'done'
     approval.decision = decision
     turn.push({ ...approval, status: 'done', decision })
+    return { ok: true }
+  }
+
+  /**
+   * @param {string} turnId
+   * @param {string} requestId
+   * @param {string[][]} answers - selected labels / custom text per question
+   */
+  answerQuestion(turnId, requestId, answers) {
+    const turn = this.#require(turnId)
+    const question = turn.events.find(event => event.type === 'question' && event.requestId === requestId)
+    if (question === undefined) throw new Error('agent-cli: unknown question request')
+    if (question.status !== 'running') return { ok: true }
+    turn.handle?.answerQuestion?.(requestId, answers)
+    question.status = 'done'
+    question.answers = answers
+    turn.push({ ...question, status: 'done', answers })
     return { ok: true }
   }
 

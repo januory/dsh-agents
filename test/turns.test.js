@@ -110,6 +110,35 @@ test('turn manager steers a live turn and rejects a dead or steerless one', asyn
   turns.dispose()
 })
 
+test('question events gate the turn and record answers', async () => {
+  const turns = new TurnManager({ retentionMs: 60_000 })
+  let received
+  let sink
+  const provider = fakeProvider({
+    async startTurn(request, s) {
+      sink = s
+      s.setSession('s1')
+      return {
+        cancel: () => s.finish({ status: 'cancelled' }),
+        answer: () => {},
+        answerQuestion: (requestId, answers) => { received = { requestId, answers } },
+        dispose: () => {},
+      }
+    },
+  })
+  const { turnId } = await turns.start(provider, { cwd: '/p', text: 'hi' })
+  assert.equal(turns.poll(turnId, 0).status, 'running')
+  sink.emit({ id: 'q1', type: 'question', requestId: 'r1', questions: [{ key: 'a', question: 'A?', multiSelect: false, options: [{ label: 'x' }] }, { key: 'b', question: 'B?', multiSelect: true, options: [{ label: 'y' }, { label: 'z' }] }], status: 'running' })
+  assert.equal(turns.poll(turnId, 0).status, 'awaiting')
+  turns.answerQuestion(turnId, 'r1', [['x'], ['y', 'z']])
+  assert.deepEqual(received, { requestId: 'r1', answers: [['x'], ['y', 'z']] })
+  const poll = turns.poll(turnId, 0)
+  assert.equal(poll.status, 'running')
+  assert.equal(poll.events.at(-1).status, 'done')
+  assert.deepEqual(poll.events.at(-1).answers, [['x'], ['y', 'z']])
+  turns.dispose()
+})
+
 test('a live turn survives without a reader; finished turns are reaped', async () => {
   const turns = new TurnManager({ retentionMs: 40 })
   let cancelled = 0

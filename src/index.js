@@ -171,6 +171,13 @@ export function apply(ctx, config) {
         return failure(error)
       }
     },
+    answerQuestion(turnId, requestId, answers) {
+      try {
+        return turns.answerQuestion(turnId, requestId, answers)
+      } catch (error) {
+        return failure(error)
+      }
+    },
     renameSession(providerId, sessionId, title) {
       try {
         registry.get(providerId)
