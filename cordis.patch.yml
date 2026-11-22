@@ -1,0 +1,6 @@
+# dsh-agents bundle layer: one Host row that also carries the browser half
+# through the package's `dsh.client` declaration. Inserts only; no built-in row
+# is replaced.
+- insert:
+    - id: dsh-agents
+      name: '@januory/dsh-agents'

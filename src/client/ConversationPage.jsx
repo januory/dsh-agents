@@ -1,0 +1,151 @@
+import { useEffect, useMemo, useRef } from 'react'
+import { IconChevronLeftOutlineMedium, PathLabel, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { cx } from './cx.js'
+import { SourceIcon } from './SourceIcon.jsx'
+import { Composer } from './Composer.jsx'
+import { Transcript, TurnStatus } from './Transcript.jsx'
+import { isLive, workspaceOptions } from './controller.js'
+import css from './ConversationPage.module.css'
+
+function useStickToBottom(dep) {
+  const ref = useRef(null)
+  const stick = useRef(true)
+  useEffect(() => {
+    const el = ref.current
+    if (el === null) return
+    const onScroll = () => { stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48 }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
+  useEffect(() => {
+    const el = ref.current
+    if (el !== null && stick.current) el.scrollTop = el.scrollHeight
+  }, [dep])
+  return ref
+}
+
+/**
+ * The centre-column page for a foreign CLI session: transcript on top, the
+ * composer below. It is a root main panel, so it carries no dsh session.
+ */
+export function ConversationPage(props) {
+  const { t, useAgentView, useAgentTranscript, useAgentProviders, useAgentSessions, useAgentSettings, useAgentModels, send, cancel, answer, showEarlier, setSource, setLaunch, pickDirectory, addWorkspace } = props
+  const source = useAgentView(s => s.source)
+  const transcript = useAgentTranscript(s => s)
+  const providers = useAgentProviders(s => s.list)
+  const bucket = useAgentSessions(s => s.byProvider[source])
+  const defaults = useAgentSettings(s => s.providers[source])
+  const models = useAgentModels(s => s.byProvider[source])
+  const chosen = useAgentView(s => s.launch[source])
+  const launch = { permissionMode: chosen?.permissionMode ?? defaults?.permissionMode ?? '', model: chosen?.model ?? defaults?.model ?? '', effort: chosen?.effort ?? defaults?.effort ?? '' }
+  const provider = providers.find(p => p.id === source)
+  const name = provider?.label ?? source
+  const session = transcript.session
+  const isNew = session === null && !transcript.loading
+  const busy = transcript.sending || (transcript.turn !== null && isLive(transcript.turn.status))
+  const workspaces = useMemo(() => workspaceOptions(bucket), [bucket?.list, bucket?.workspaces])
+  const last = transcript.events[transcript.events.length - 1]
+  const scrollRef = useStickToBottom(`${transcript.key}:${transcript.events.length}:${last?.text?.length ?? 0}:${last?.output?.length ?? 0}`)
+
+  if (source === 'dsh') return null
+
+  let disabledReason
+  if (provider !== undefined && !provider.available) disabledReason = t('list.unavailable', { name, error: provider.error ?? '' })
+  else if (provider?.authenticated === false) disabledReason = t('auth.login', { command: provider.id })
+  else if (session?.live !== undefined && !busy) {
+    disabledReason = session.live.pid !== undefined ? t('composer.elsewhere', { name, pid: session.live.pid }) : t('composer.elsewhereNoPid', { name })
+  }
+  const sendError = transcript.error === null ? undefined
+    : transcript.error === 'no-cwd' ? t('error.noCwd')
+      : transcript.error === 'busy' ? t('error.busy')
+        : t('error.send', { error: transcript.error })
+
+  const title = session === null ? t('page.new', { name }) : (session.title || t('row.untitled'))
+  const blank = isNew && transcript.events.length === 0 && !transcript.sending && transcript.error === null
+  const composer = (
+    <Composer
+      t={t}
+      name={name}
+      provider={provider}
+      session={session}
+      isNew={isNew}
+      hero={blank}
+      busy={busy}
+      sending={transcript.sending}
+      disabledReason={disabledReason}
+      launch={launch}
+      models={models}
+      workspaces={workspaces}
+      initialCwd={transcript.cwd}
+      newNonce={transcript.newNonce}
+      pickDirectory={pickDirectory}
+      addWorkspace={addWorkspace}
+      onLaunch={patch => setLaunch(source, patch)}
+      onStop={() => { void cancel() }}
+      onSend={request => { void send(source, { sessionId: session?.id, ...request }) }}
+    />
+  )
+  if (blank) {
+    return (
+      <div className={css.page}>
+        <header className={css.header}>
+          <Tooltip label={t('page.back')} side="bottom" delayMs={400}>
+            <button type="button" className={css.back} aria-label={t('page.back')} onClick={() => setSource('dsh')}>
+              <IconChevronLeftOutlineMedium size={14} />
+            </button>
+          </Tooltip>
+          <SourceIcon source={source} size={16} className={css.mark} />
+          <div className={css.heading}><div className={css.title} title={title}>{title}</div></div>
+        </header>
+        <div className={css.body}>
+          <div className={css.hero}>
+            <SourceIcon source={source} size={28} />
+            <div className={css.heroTitle}>{t('page.new', { name })}</div>
+            <div className={css.heroComposer}>{composer}</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className={css.page}>
+      <header className={css.header}>
+        <Tooltip label={t('page.back')} side="bottom" delayMs={400}>
+          <button type="button" className={css.back} aria-label={t('page.back')} onClick={() => setSource('dsh')}>
+            <IconChevronLeftOutlineMedium size={14} />
+          </button>
+        </Tooltip>
+        <SourceIcon source={source} size={16} className={css.mark} />
+        <div className={css.heading}>
+          <div className={css.title} title={title}>{title}</div>
+          <div className={css.meta}>
+            {session?.cwd && <PathLabel path={session.cwd} className={css.path} />}
+            {session?.gitBranch && <Tag tone="quiet">{session.gitBranch}</Tag>}
+            {(session?.model ?? transcript.events.find(e => e.type === 'meta')?.model) && <Tag tone="quiet">{session?.model ?? transcript.events.find(e => e.type === 'meta').model}</Tag>}
+            {session?.live !== undefined && <Tag tone="warning">{session.live.pid !== undefined ? t('composer.elsewhere', { name, pid: session.live.pid }) : t('row.elsewhere')}</Tag>}
+          </div>
+        </div>
+      </header>
+      <div className={css.body} ref={scrollRef}>
+        {transcript.loading ? <div className={css.center}>{t('page.loading')}</div>
+          : transcript.error !== null && transcript.events.length === 0 ? <div className={cx(css.center, css.error)}>{t('page.error', { error: transcript.error })}</div>
+            : transcript.events.length === 0 ? (
+              <div className={css.hero}>
+                <SourceIcon source={source} size={28} />
+                <div className={css.heroTitle}>{t('row.untitled')}</div>
+              </div>
+            ) : (
+              <>
+                {session?.hasEarlier && <div className={css.truncated}>{t('page.truncated')}</div>}
+                <Transcript events={transcript.events} limit={transcript.historyLimit} t={t} onAnswer={answer} onEarlier={showEarlier} />
+              </>
+            )}
+        {transcript.turn !== null && transcript.turn.status !== 'done' && (
+          <div className={css.statusRow}><TurnStatus turn={transcript.turn} name={name} source={source} t={t} /></div>
+        )}
+      </div>
+      {sendError !== undefined && !transcript.loading && <div className={css.sendError} role="alert">{sendError}</div>}
+      {composer}
+    </div>
+  )
+}

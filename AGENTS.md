@@ -1,0 +1,1 @@
+Default to no comments. Never write history/changelog notes, comments that restate the code, dead code, or vague placeholders. Only add a brief comment when explaining why (counter-intuitive code, external constraints, complex algorithms, public API docs), and keep it minimal. When in doubt, don't comment.

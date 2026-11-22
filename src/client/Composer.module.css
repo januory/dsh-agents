@@ -1,0 +1,240 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 0 var(--dag-composer-side-clearance, 16px) 4px;
+  box-sizing: border-box;
+}
+
+.hero {
+  padding-bottom: 0;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  max-width: var(--dag-composer-card-max, 912px);
+}
+
+.workspaceRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 8px;
+  margin-bottom: -4px;
+}
+
+.blocked {
+  padding: 8px 12px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding-top: 8px;
+  border-radius: var(--dsw-radius-panel);
+  background: var(--dsw-specific-input-major);
+  box-shadow: var(--dsw-elevation-soft);
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l2);
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
+  box-sizing: border-box;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 36px;
+  max-height: 336px;
+  padding: 4px 8px 0 14px;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  caret-color: var(--dsw-alias-state-business-primary);
+  font: inherit;
+  line-height: inherit;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.hero .textarea {
+  min-height: 52px;
+}
+
+.textarea::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.textarea:disabled {
+  opacity: 0.6;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px 8px;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.modes,
+.trailing {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.trailing {
+  margin-left: auto;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 260px;
+  height: 28px;
+  padding: 0 4px 0 4px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.chip:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
+.chipIcon {
+  display: inline-flex;
+  flex: none;
+}
+
+.chipLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelIcon {
+  display: none;
+  flex: none;
+}
+
+.chevron {
+  flex: none;
+  color: var(--dsw-alias-label-caption);
+  transition: transform 120ms ease;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+@container (max-width: 460px) {
+  .chipIcon ~ .chipLabel {
+    display: none;
+  }
+
+  .modelIcon {
+    display: inline-flex;
+  }
+
+  .modelIcon ~ .chipLabel {
+    display: none;
+  }
+}
+
+.menu {
+  min-width: 220px;
+}
+
+.modelMenu {
+  min-width: 280px;
+}
+
+.primary {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-alias-button-info-fill);
+  color: var(--dsw-alias-label-on-color);
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.primary[data-sending]:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+
+.sendingSpinner {
+  animation: dag-sending 800ms linear infinite;
+}
+
+@keyframes dag-sending {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sendingSpinner {
+    animation-duration: 2400ms;
+  }
+}
+
+.hint {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  padding: 0 4px;
+}
+
+@media (hover: hover) {
+  .chip:hover:not(:disabled) {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+
+  .primary:hover:not(:disabled) {
+    background: var(--dsw-alias-button-info-hover);
+  }
+}
+
+.chip:focus-visible,
+.primary:focus-visible {
+  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+}

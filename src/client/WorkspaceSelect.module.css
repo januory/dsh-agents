@@ -1,0 +1,92 @@
+.workspace {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(100%, 360px);
+  min-height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.workspace[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.workspace:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.folder {
+  flex: none;
+  color: var(--dsw-alias-label-primary);
+}
+
+.workspace:disabled .folder {
+  color: inherit;
+}
+
+.workspaceLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex: none;
+  color: var(--dsw-alias-label-caption);
+  transition: transform 120ms ease;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.menu {
+  min-width: 240px;
+}
+
+.disambiguated {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.itemTitle,
+.pathSuffix {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pathSuffix {
+  flex: none;
+  max-width: 75%;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.modalError {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+  overflow-wrap: anywhere;
+}
+
+@media (hover: hover) {
+  .workspace:not(:disabled):hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.workspace:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}

@@ -1,0 +1,62 @@
+.intercept {
+  display: contents;
+}
+
+.trigger {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  width: 28px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  padding: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.trigger.wide {
+  width: auto;
+  max-width: 96px;
+  padding: 0 8px;
+  height: 28px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-button-tool-bar-fill);
+}
+
+.trigger.active {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.menuRoot {
+  flex: none;
+}
+
+.menu {
+  min-width: 180px;
+}
+
+@media (hover: hover) {
+  .trigger:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.trigger:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
