@@ -127,25 +127,29 @@ export function ConversationPage(props) {
         </div>
       </header>
       <div className={css.body} ref={scrollRef}>
-        {transcript.loading ? <div className={css.center}>{t('page.loading')}</div>
-          : transcript.error !== null && transcript.events.length === 0 ? <div className={cx(css.center, css.error)}>{t('page.error', { error: transcript.error })}</div>
-            : transcript.events.length === 0 ? (
-              <div className={css.hero}>
-                <SourceIcon source={source} size={28} />
-                <div className={css.heroTitle}>{t('row.untitled')}</div>
-              </div>
-            ) : (
-              <>
-                {session?.hasEarlier && <div className={css.truncated}>{t('page.truncated')}</div>}
-                <Transcript events={transcript.events} limit={transcript.historyLimit} t={t} onAnswer={answer} onEarlier={showEarlier} />
-              </>
-            )}
-        {transcript.turn !== null && transcript.turn.status !== 'done' && (
-          <div className={css.statusRow}><TurnStatus turn={transcript.turn} name={name} source={source} t={t} /></div>
-        )}
+        <div className={css.view}>
+          {transcript.loading ? <div className={css.center}>{t('page.loading')}</div>
+            : transcript.error !== null && transcript.events.length === 0 ? <div className={cx(css.center, css.error)}>{t('page.error', { error: transcript.error })}</div>
+              : transcript.events.length === 0 ? (
+                <div className={css.hero}>
+                  <SourceIcon source={source} size={28} />
+                  <div className={css.heroTitle}>{t('row.untitled')}</div>
+                </div>
+              ) : (
+                <>
+                  {session?.hasEarlier && <div className={css.truncated}>{t('page.truncated')}</div>}
+                  <Transcript events={transcript.events} limit={transcript.historyLimit} t={t} onAnswer={answer} onEarlier={showEarlier} />
+                </>
+              )}
+          {transcript.turn !== null && transcript.turn.status !== 'done' && (
+            <div className={css.statusRow}><TurnStatus turn={transcript.turn} name={name} source={source} t={t} /></div>
+          )}
+        </div>
+        <div className={css.composerSeat}>
+          {sendError !== undefined && !transcript.loading && <div className={css.sendError} role="alert">{sendError}</div>}
+          {composer}
+        </div>
       </div>
-      {sendError !== undefined && !transcript.loading && <div className={css.sendError} role="alert">{sendError}</div>}
-      {composer}
     </div>
   )
 }

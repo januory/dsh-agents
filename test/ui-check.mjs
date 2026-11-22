@@ -258,9 +258,13 @@ if (!skipTurns) await step('new-session-turn', async () => {
   const status = await page.evaluate(() => {
     const el = document.querySelector('[class*="dag-statusLive"]')
     const row = el.closest('[class*="statusRow"]')
-    return { color: getComputedStyle(el).color, border: getComputedStyle(row).borderTopWidth, text: el.textContent }
+    const line = getComputedStyle(row, '::before')
+    const text = document.querySelector('[class*="dag-transcript"]').firstElementChild.getBoundingClientRect()
+    const mine = el.getBoundingClientRect()
+    return { color: getComputedStyle(el).color, divider: line.height, dividerLeft: Math.round(row.getBoundingClientRect().left + parseFloat(line.left)), textLeft: Math.round(text.left), statusLeft: Math.round(mine.left), height: Math.round(mine.height), text: el.textContent }
   })
-  if (status.color !== 'rgb(217, 119, 87)' || status.border === '0px' || !/用时|elapsed/.test(status.text)) throw new Error(`live status wrong: ${JSON.stringify(status)}`)
+  if (status.color !== 'rgb(217, 119, 87)' || status.divider === '0px' || !/用时|elapsed/.test(status.text)) throw new Error(`live status wrong: ${JSON.stringify(status)}`)
+  if (Math.abs(status.dividerLeft - status.textLeft) > 1 || Math.abs(status.statusLeft - status.textLeft) > 1 || status.height !== 28) throw new Error(`status not on the transcript axis: ${JSON.stringify(status)}`)
   await page.locator('[class*="dag-assistantRow"]').filter({ hasText: 'OK' }).first().waitFor({ timeout: 90_000 })
   await page.waitForTimeout(1500)
   await shot('ui-05-turn-done')
@@ -271,6 +275,12 @@ if (!skipTurns) await step('resume-turn', async () => {
   await page.locator('button[aria-label="Send"], button[aria-label="发送"]').click()
   await page.waitForFunction(() => document.querySelectorAll('[class*="dag-assistantRow"]').length >= 2, { timeout: 90_000 })
   await page.waitForTimeout(2500)
+  const axis = await page.evaluate(() => {
+    const row = document.querySelector('[class*="dag-assistantRow"]').getBoundingClientRect()
+    const card = document.querySelector('[class*="dag-box-Composer"]').getBoundingClientRect()
+    return { row: Math.round(row.width), card: Math.round(card.width), dl: Math.round(card.left - row.left), dr: Math.round(row.right - card.right) }
+  })
+  if (Math.abs(axis.card - axis.row - 32) > 1 || Math.abs(axis.dl + 16) > 1 || Math.abs(axis.dr + 16) > 1) throw new Error(`composer not 32px wider than the transcript column: ${JSON.stringify(axis)}`)
   await shot('ui-06-resumed')
 })
 

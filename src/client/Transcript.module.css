@@ -3,13 +3,13 @@
   flex-direction: column;
   gap: 14px;
   width: 100%;
-  max-width: 860px;
+  max-width: calc(var(--dag-content-width, 880px) + 64px);
   margin: 0 auto;
-  padding: 24px 24px 16px;
+  padding: 16px 32px 0;
   box-sizing: border-box;
   color: var(--dsw-alias-label-primary);
-  font-size: 14px;
-  line-height: 22px;
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(22px + var(--dsh-content-font-delta, 0px));
 }
 
 .earlier {
@@ -202,10 +202,12 @@
 .status {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  height: calc(28px + var(--dsh-content-font-delta, 0px));
+  margin-top: 4px;
   color: var(--dsw-alias-label-secondary);
-  font-size: 12.5px;
-  line-height: 18px;
+  font-size: calc(var(--dsh-content-font-size, 14px) - 2px);
+  line-height: calc(22px + var(--dsh-content-font-delta, 0px));
 }
 
 .statusLive {

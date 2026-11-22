@@ -5,10 +5,11 @@
   min-height: 0;
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
-  /* dsh's adaptive width axis: content clamp(680, 64% of the column, 880),
-     composer card 32px wider, 16px side clearance. */
+  /* dsh's adaptive width axis: transcript column clamp(680, 64% of the column,
+     880), composer card 32px wider, 16px side clearance. */
   container-type: inline-size;
-  --dag-composer-card-max: calc(clamp(680px, 64cqw, 880px) + 32px);
+  --dag-content-width: clamp(680px, 64cqw, 880px);
+  --dag-composer-card-max: calc(var(--dag-content-width) + 32px);
   --dag-composer-side-clearance: 16px;
 }
 
@@ -73,12 +74,37 @@
   max-width: 420px;
 }
 
+/* dsh's scroll frame: the transcript and the sticky composer seat share one
+   scrollport, so the gutter it reserves shifts both by the same amount. */
 .body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: clip;
   display: flex;
   flex-direction: column;
+  margin-right: 2px;
+  scrollbar-gutter: stable;
+}
+
+.view {
+  flex: 1 0 auto;
+  min-height: auto;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 16px;
+}
+
+.composerSeat {
+  position: sticky;
+  bottom: 0;
+  z-index: 9;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  margin-top: auto;
+  overflow-anchor: none;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--dsw-alias-bg-base) 0%, transparent) 0px, var(--dsw-alias-bg-base) 36px);
 }
 
 .center {
@@ -131,9 +157,9 @@
 .sendError {
   flex: none;
   width: 100%;
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 0 24px;
+  max-width: var(--dag-composer-card-max, 912px);
+  margin: 0 auto 6px;
+  padding: 0 16px;
   box-sizing: border-box;
   color: var(--dsw-alias-state-error-primary);
   font-size: 12.5px;
@@ -141,13 +167,26 @@
   white-space: pre-wrap;
 }
 
+/* dsh's running-status tail slot: transcript-column wide, 12px below the last
+   item, the hairline drawn 4px above a 28px row inside that offset. */
 .statusRow {
+  position: relative;
   width: 100%;
-  max-width: var(--dag-composer-card-max, 912px);
-  margin: 0 auto;
-  padding: 8px 14px;
+  max-width: calc(var(--dag-content-width, 880px) + 64px);
+  margin: 12px auto 0;
+  padding: 0 32px;
   box-sizing: border-box;
-  border-top: 0.5px solid color-mix(in srgb, var(--dsw-alias-border-l1) 75%, var(--dsw-alias-border-l2));
+}
+
+.statusRow::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: 32px;
+  right: 32px;
+  height: 0.5px;
+  background: color-mix(in srgb, var(--dsw-alias-border-l1) 75%, var(--dsw-alias-border-l2));
+  pointer-events: none;
 }
 
 @media (hover: hover) {
