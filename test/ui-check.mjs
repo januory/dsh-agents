@@ -356,7 +356,10 @@ if (!skipTurns) await step('tool-image-preview', async () => {
   await page.locator('button[aria-label="Send"], button[aria-label="发送"]').click()
   const pending = page.locator('[class*="dag-approval"][role="alertdialog"]').first()
   await pending.waitFor({ timeout: 90_000 })
-  await pending.getByRole('button', { name: /^(Allow|允许)$/ }).click()
+  for (let i = 0; i < 3 && (await page.locator('[class*="dag-approval"][role="alertdialog"]').count()) > 0; i++) {
+    await page.locator('[class*="dag-approval"][role="alertdialog"]').last().getByRole('button', { name: /^(Allow|允许)$/ }).click()
+    await page.waitForTimeout(800)
+  }
   const thumb = page.locator('[class*="dag-disclosure"] button[aria-label="查看原图"], [class*="dag-disclosure"] button[aria-label="View original"]').first()
   await thumb.waitFor({ timeout: 90_000 })
   await page.waitForFunction(() => { const img = document.querySelector('[class*="dag-disclosure"] [class*="imageFrame"] img'); return img !== null && img.complete && img.naturalWidth > 0 }, { timeout: 30_000 })
@@ -452,6 +455,26 @@ if (!skipTurns) await step('image-paste', async () => {
   await page.evaluate(key => { document.querySelector(`[data-row-key="${key}"]`).click() }, current)
   await page.waitForFunction(() => /1 张图片|1 images/.test(document.querySelector('[class*="dag-transcript"]')?.textContent ?? ''), { timeout: 30_000 })
   await shot('ui-06h-image-history')
+})
+
+if (!skipTurns) await step('background-dot', async () => {
+  const area = page.locator('[class*="dag-textarea"]')
+  const rowKey = await page.locator('[data-row-key^="agent:claude:"][aria-selected="true"]').getAttribute('data-row-key')
+  await area.fill('Use the Bash tool to run `touch ui-probe-dot.txt`, then reply done.')
+  await page.locator('button[aria-label="Send"], button[aria-label="发送"]').click()
+  await page.locator('[class*="dag-approval"][role="alertdialog"]').first().waitFor({ timeout: 90_000 })
+  await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
+  await page.waitForTimeout(2500)
+  const row = page.locator(`[data-row-key="${rowKey}"]`)
+  const label = await row.locator('[class*="time"]').first().textContent()
+  if (!/等待批准|Approval/.test(label ?? '')) throw new Error(`backgrounded awaiting session lost its status: ${label}`)
+  const dot = await row.evaluate(el => el.querySelector('[class*="slot"]').children.length)
+  if (dot === 0) throw new Error('no status dot on the backgrounded session')
+  await shot('ui-06f-background-dot')
+  await page.evaluate(k => { document.querySelector(`[data-row-key="${k}"]`).click() }, rowKey)
+  await page.locator('[class*="dag-approval"][role="alertdialog"]').first().waitFor({ timeout: 30_000 })
+  await page.getByRole('button', { name: /^(Allow|允许)$/ }).first().click()
+  await page.waitForFunction(() => document.querySelector('[class*="dag-statusLive"]') === null, null, { timeout: 60_000 })
 })
 
 await step('switch-codex', async () => {

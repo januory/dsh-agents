@@ -148,6 +148,13 @@ export class TurnManager {
       .map(turn => ({ turnId: turn.id, seq: turn.seq, startedAt: turn.startedAt }))
   }
 
+  /** Live turns across every session of a provider, for the sidebar status dots. */
+  activeByProvider(providerId) {
+    return [...this.#turns.values()]
+      .filter(turn => turn.providerId === providerId && turn.sessionId !== undefined && LIVE_STATES.has(turn.status))
+      .map(turn => ({ sessionId: turn.sessionId, turnId: turn.id, status: turn.status, startedAt: turn.startedAt }))
+  }
+
   dispose() {
     clearInterval(this.#timer)
     for (const turn of this.#turns.values()) turn.handle?.dispose()

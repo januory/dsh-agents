@@ -4,6 +4,7 @@ import { unwrap } from '../remote.js'
 const TURN_POLL_MS = 250
 const APPROVAL_POLL_MS = 600
 const LIST_REFRESH_MS = 8_000
+const ACTIVE_REFRESH_MS = 2_000
 const MAX_RENDERED_EVENTS = 300
 
 export const SOURCES = ['dsh', 'claude', 'codex']
@@ -11,7 +12,7 @@ export const SOURCES = ['dsh', 'claude', 'codex']
 const VIEW_DEFAULTS = { source: 'dsh', selected: {}, query: '', expanded: {}, showHidden: false, groupBy: 'project', launch: {} }
 
 function emptyBucket() {
-  return { list: [], workspaces: [], loaded: false, loading: false, error: null, at: 0 }
+  return { list: [], workspaces: [], active: {}, loaded: false, loading: false, error: null, at: 0 }
 }
 
 function transcriptKey(provider, sessionId) {
@@ -56,6 +57,7 @@ export class AgentCliController {
     this.sourceChanged = () => {}
     this.pollTimer = undefined
     this.listTimer = undefined
+    this.activeTimer = undefined
     this.pollSeq = 0
     this.pollRetries = 0
     this.polling = false
@@ -63,7 +65,10 @@ export class AgentCliController {
     this.disposed = false
     this.onVisibility = () => {
       if (document.visibilityState !== 'visible') return
-      if (this.view.getSnapshot().source !== 'dsh') void this.refreshSessions()
+      if (this.view.getSnapshot().source !== 'dsh') {
+        void this.refreshSessions()
+        void this.refreshActive()
+      }
       this.#resumePoll()
     }
     this.onOnline = () => { this.#resumePoll() }
@@ -177,6 +182,19 @@ export class AgentCliController {
         if (row !== undefined) d.session = { ...d.session, ...row }
       })
     }
+    void this.refreshActive(provider)
+  }
+
+  // Sidebar dots for sessions other than the open one: the host's live turns,
+  // refreshed on a short cadence so "running / awaiting approval" stays current.
+  async refreshActive(provider = this.view.getSnapshot().source) {
+    if (provider === 'dsh') return
+    const answer = await this.call('activeTurns', provider)
+    if (this.disposed || !answer.ok) return
+    this.sessions.update(d => {
+      const bucket = d.byProvider[provider] ??= emptyBucket()
+      bucket.active = Object.fromEntries(answer.turns.map(turn => [turn.sessionId, turn.status]))
+    })
   }
 
   setSource(source) {
@@ -331,11 +349,13 @@ export class AgentCliController {
   async cancel() {
     if (this.turnId === undefined) return
     await this.call('cancelTurn', this.turnId)
+    void this.refreshActive()
   }
 
   async answer(requestId, decision) {
     if (this.turnId === undefined) return
     await this.call('answerApproval', this.turnId, requestId, decision)
+    void this.refreshActive()
   }
 
   async addWorkspace(provider, path) {
@@ -393,6 +413,7 @@ export class AgentCliController {
     this.pollSeq = fromSeq
     this.pollRetries = 0
     this.transcript.update(d => { d.turn = { id: turnId, status: 'running', error: null, startedAt: startedAt ?? Date.now() } })
+    void this.refreshActive()
     void this.#poll()
   }
 
@@ -463,15 +484,23 @@ export class AgentCliController {
   }
 
   #startListWatcher() {
-    if (this.listTimer !== undefined) return
-    this.listTimer = setInterval(() => {
-      if (document.visibilityState === 'visible') void this.refreshSessions()
-    }, LIST_REFRESH_MS)
+    if (this.listTimer === undefined) {
+      this.listTimer = setInterval(() => {
+        if (document.visibilityState === 'visible') void this.refreshSessions()
+      }, LIST_REFRESH_MS)
+    }
+    if (this.activeTimer === undefined) {
+      this.activeTimer = setInterval(() => {
+        if (document.visibilityState === 'visible') void this.refreshActive()
+      }, ACTIVE_REFRESH_MS)
+    }
   }
 
   #stopListWatcher() {
     if (this.listTimer !== undefined) clearInterval(this.listTimer)
     this.listTimer = undefined
+    if (this.activeTimer !== undefined) clearInterval(this.activeTimer)
+    this.activeTimer = undefined
   }
 }
 

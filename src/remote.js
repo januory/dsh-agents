@@ -37,6 +37,7 @@ function invocation(method, parameters = []) {
 export const INVOCATIONS = [
   invocation('providers', [jsonParameter('force', { optional: true })]),
   invocation('sessions', [jsonParameter('provider')]),
+  invocation('activeTurns', [jsonParameter('provider')]),
   invocation('models', [jsonParameter('provider')]),
   invocation('transcript', [jsonParameter('provider'), jsonParameter('sessionId')]),
   invocation('startTurn', [jsonParameter('provider'), jsonParameter('request')]),

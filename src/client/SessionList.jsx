@@ -13,9 +13,15 @@ import css from './SessionList.module.css'
 
 const PAGE = 5
 
-function rowState(row, turn, t) {
+function rowState(row, turn, active, t) {
   if (turn !== undefined && turn.sessionId === row.id && isLive(turn.status)) {
     if (turn.status === 'awaiting') return { state: 'warning', label: t('row.awaiting') }
+    return { state: 'ongoing', label: t('row.running') }
+  }
+  // A live turn driven here but not currently open: keep its dot current too.
+  const own = active?.[row.id]
+  if (own !== undefined) {
+    if (own === 'awaiting') return { state: 'warning', label: t('row.awaiting') }
     return { state: 'ongoing', label: t('row.running') }
   }
   if (row.live !== undefined) {
@@ -57,9 +63,9 @@ function groupRows(rows, workspaces, query) {
   return [...groups.values()].sort((a, b) => recency(b) - recency(a))
 }
 
-function SessionRow({ row, selected, now, turn, t, onOpen, onMenu, menuOpen }) {
+function SessionRow({ row, selected, now, turn, active, t, onOpen, onMenu, menuOpen }) {
   const title = row.title || t('row.untitled')
-  const status = rowState(row, turn, t)
+  const status = rowState(row, turn, active, t)
   const titleRef = useRef(null)
   const body = (
     <div
@@ -199,6 +205,7 @@ export function SessionList(props) {
       row={row}
       now={now}
       turn={turn}
+      active={bucket?.active}
       t={t}
       selected={row.id === selectedId}
       menuOpen={menu?.kind === 'session' && menu.row.id === row.id}

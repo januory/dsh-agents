@@ -92,6 +92,14 @@ export function apply(ctx, config) {
         return failure(error)
       }
     },
+    activeTurns(providerId) {
+      try {
+        registry.get(providerId)
+        return { ok: true, turns: turns.activeByProvider(providerId) }
+      } catch (error) {
+        return failure(error)
+      }
+    },
     async models(providerId) {
       try {
         const provider = registry.get(providerId)
