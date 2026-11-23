@@ -68,6 +68,8 @@ export function apply(ctx) {
     answerQuestion: (requestId, answers) => controller.answerQuestion(requestId, answers),
     loadTaskOutput: taskId => controller.loadTaskOutput(taskId),
     stopTask: taskId => controller.stopTask(taskId),
+    compact: (provider, sessionId) => controller.compact(provider, sessionId),
+    goal: (provider, sessionId, op, objective) => controller.goal(provider, sessionId, op, objective),
     clearTasks: () => controller.clearSettledTasks(),
     saveSettings: providers => controller.saveSettings(providers),
     // dsh's picker packages own the flow holes; rendering their occupant with

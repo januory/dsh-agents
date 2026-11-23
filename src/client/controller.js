@@ -373,6 +373,44 @@ export class AgentCliController {
     void this.refreshActive()
   }
 
+  async compact(provider, sessionId) {
+    const state = this.transcript.getSnapshot()
+    if (state.sending || sessionId === undefined) return { ok: false, error: 'busy' }
+    this.transcript.update(d => {
+      d.sending = true
+      d.error = null
+    })
+    const answer = await this.call('compactSession', provider, sessionId)
+    if (this.disposed) return answer
+    this.transcript.update(d => { d.sending = false })
+    if (!answer.ok) {
+      this.transcript.update(d => { d.error = answer.error })
+      return answer
+    }
+    this.#attach(answer.turnId, 0)
+    return answer
+  }
+
+  async goal(provider, sessionId, op, objective) {
+    if (sessionId === undefined) return { ok: false, error: 'no-session' }
+    if (op !== 'set') return this.call('goalSession', provider, sessionId, op, objective)
+    const state = this.transcript.getSnapshot()
+    if (state.sending) return { ok: false, error: 'busy' }
+    this.transcript.update(d => {
+      d.sending = true
+      d.error = null
+    })
+    const answer = await this.call('goalSession', provider, sessionId, op, objective)
+    if (this.disposed) return answer
+    this.transcript.update(d => { d.sending = false })
+    if (!answer.ok) {
+      this.transcript.update(d => { d.error = answer.error })
+      return answer
+    }
+    if (answer.turnId !== undefined) this.#attach(answer.turnId, 0)
+    return answer
+  }
+
   async answer(requestId, decision) {
     if (this.turnId === undefined) return
     await this.call('answerApproval', this.turnId, requestId, decision)

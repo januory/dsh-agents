@@ -215,3 +215,37 @@ test('jsonl readers bound large files and skip torn lines', () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('compact and goalSet route through the live-turn guard', async () => {
+  const calls = []
+  const handle = sink => ({ cancel: () => sink.finish({ status: 'cancelled' }), answer: () => {}, dispose: () => {} })
+  const provider = fakeProvider({
+    commands: ['goal', 'compact'],
+    async compact(sessionId, sink) {
+      calls.push(['compact', sessionId])
+      sink.setSession(sessionId)
+      sink.emit({ id: 'c', type: 'turn', reason: 'compact' })
+      sink.finish({ status: 'done' })
+      return handle(sink)
+    },
+    async setGoal(sessionId, objective, sink) {
+      calls.push(['goal', sessionId, objective])
+      sink.setSession(sessionId)
+      sink.finish({ status: 'done' })
+      return handle(sink)
+    },
+  })
+  const turns = new TurnManager({ retentionMs: 60_000 })
+  try {
+    const compact = await turns.compact(provider, 's1')
+    assert.equal(turns.poll(compact.turnId, 0).status, 'done')
+    const goal = await turns.goalSet(provider, 's1', 'obj')
+    assert.equal(turns.poll(goal.turnId, 0).status, 'done')
+    assert.deepEqual(calls, [['compact', 's1'], ['goal', 's1', 'obj']])
+    await assert.rejects(() => turns.compact(fakeProvider(), 's1'), /does not support compaction/)
+    await assert.rejects(() => turns.goalSet(fakeProvider(), 's1', 'x'), /does not support goals/)
+    await assert.rejects(() => turns.compact(provider, ''), /session is required/)
+  } finally {
+    turns.dispose()
+  }
+})

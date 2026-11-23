@@ -125,6 +125,24 @@ rl.on('line', line => {
     out({ type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'echo hi' }, permission_suggestions: [] } })
     return
   }
+  if (text === '/compact') {
+    const command = '<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>'
+    record({ type: 'user', uuid: randomUUID(), message: { role: 'user', content: command } })
+    out({ type: 'user', session_id: sessionId, message: { role: 'user', content: command } })
+    record({ type: 'system', subtype: 'compact_boundary', uuid: randomUUID(), compactMetadata: { trigger: 'manual' } })
+    const stdout = '<local-command-stdout>Compacted </local-command-stdout>'
+    record({ type: 'user', uuid: randomUUID(), message: { role: 'user', content: stdout } })
+    out({ type: 'user', session_id: sessionId, message: { role: 'user', content: stdout } })
+    return
+  }
+  if (text.startsWith('/goal')) {
+    const command = `<command-name>/goal</command-name>\n<command-args>${text.slice(5).trim()}</command-args>`
+    record({ type: 'user', uuid: randomUUID(), message: { role: 'user', content: command } })
+    out({ type: 'user', session_id: sessionId, message: { role: 'user', content: command } })
+    assistant([{ type: 'text', text: 'GOAL_OK' }])
+    result('GOAL_OK')
+    return
+  }
   if (text === 'HANG') { hanging = true; assistant([{ type: 'text', text: 'working' }]); return }
   if (hanging) return
   assistant([{ type: 'text', text: `echo:${text}` }])

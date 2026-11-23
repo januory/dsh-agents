@@ -62,6 +62,11 @@
  * @property {() => Promise<{ id: string, label: string, description?: string, efforts?: string[], defaultEffort?: string }[]>} [listModels]
  * @property {readonly string[]} [permissionModes]
  * @property {readonly string[]} [reasoningEfforts] - CLI-wide effort levels when models do not advertise their own
+ * @property {readonly string[]} [commands] - slash commands the CLI accepts from this transport
+ * @property {(sessionId: string, sink: TurnSink) => Promise<TurnHandle>} [compact]
+ * @property {(sessionId: string, objective: string, sink: TurnSink) => Promise<TurnHandle>} [setGoal]
+ * @property {(sessionId: string) => Promise<{ goal: object | null }>} [getGoal]
+ * @property {(sessionId: string) => Promise<{ cleared: boolean }>} [clearGoal]
  */
 
 const REQUIRED_METHODS = ['detect', 'listSessions', 'readTranscript', 'startTurn']

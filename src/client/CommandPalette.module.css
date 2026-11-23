@@ -1,0 +1,121 @@
+.menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  box-sizing: border-box;
+  max-height: 400px;
+  overflow: hidden;
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+  --dsh-scrollbar-width: 6px;
+  --dsh-scrollbar-thumb-border: 2px;
+  --dsh-scrollbar-track-margin: 12px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-elevation-prominent);
+}
+
+.menu[data-overflow-below]::after {
+  content: '';
+  position: absolute;
+  right: 14px;
+  bottom: 4px;
+  left: 4px;
+  height: 16px;
+  background: linear-gradient(to bottom, transparent, var(--dsw-specific-menu));
+  pointer-events: none;
+}
+
+.viewport {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+}
+
+/* Pointer motion parks the same highlight the keyboard moves; no competing :hover tint. */
+.item.active {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.sectionTitle {
+  flex: none;
+  min-height: 23px;
+  padding: 5px 8px 2px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.sectionTitle:not(:first-child) {
+  margin-top: 3px;
+}
+
+.itemIcon {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-menu-icon);
+}
+
+.itemIcon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.itemName {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemAlias {
+  flex: none;
+  max-width: 20%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.itemDescription {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}

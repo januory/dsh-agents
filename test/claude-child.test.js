@@ -114,7 +114,7 @@ test('subagent progress and completion reach the task view with counters', async
   try {
     const { turnId } = await s.turns.start(s.provider, { cwd: s.cwd, text: 'AGENT' })
     const { sessionId } = await waitStatus(s.turns, turnId, ['done'])
-    const task = await waitTask(s.provider, sessionId, 'toolu_ag', 'completed', 5000, t => t.detail !== undefined)
+    const task = await waitTask(s.provider, sessionId, 'toolu_ag', 'completed', 5000, t => t.detail !== undefined && t.durationMs === 900)
     assert.equal(s.provider.tasks(sessionId).length, 1)
     assert.equal(task.kind, 'agent')
     assert.equal(task.subagentType, 'Explore')
@@ -191,6 +191,40 @@ test('interrupt spares background tasks; stop_task kills one', async () => {
     const killed = await waitTask(s.provider, sessionId, 'toolu_slow', 'killed')
     assert.match(killed.detail, /killed/)
     assert.equal(s.exits(), 0)
+  } finally {
+    s.cleanup()
+  }
+})
+
+test('a local slash command settles from its stdout record without a result frame', async () => {
+  const s = setup()
+  try {
+    const first = await s.turns.start(s.provider, { cwd: s.cwd, text: 'hello' })
+    const { sessionId } = await waitStatus(s.turns, first.turnId, ['done'])
+    const command = await s.turns.start(s.provider, { cwd: s.cwd, sessionId, text: '/compact' })
+    const done = await waitStatus(s.turns, command.turnId, ['done'])
+    assert.ok(done.events.some(e => e.type === 'turn' && e.reason === 'compact'))
+    const disk = await s.provider.readTranscript(sessionId)
+    assert.ok(disk.events.some(e => e.type === 'turn' && e.reason === 'compact'))
+    assert.ok(!disk.events.some(e => e.type === 'user' && String(e.text).includes('<command-name>')))
+    const after = await s.turns.start(s.provider, { cwd: s.cwd, sessionId, text: 'again' })
+    await waitStatus(s.turns, after.turnId, ['done'])
+    assert.equal(s.spawns(), 1)
+  } finally {
+    s.cleanup()
+  }
+})
+
+test('a string-content command replay consumes the queued message so the result settles', async () => {
+  const s = setup()
+  try {
+    const first = await s.turns.start(s.provider, { cwd: s.cwd, text: 'hello' })
+    const { sessionId } = await waitStatus(s.turns, first.turnId, ['done'])
+    const goal = await s.turns.start(s.provider, { cwd: s.cwd, sessionId, text: '/goal ship it' })
+    const done = await waitStatus(s.turns, goal.turnId, ['done'])
+    assert.ok(done.events.some(e => e.type === 'assistant' && e.text === 'GOAL_OK'))
+    const disk = await s.provider.readTranscript(sessionId)
+    assert.ok(!disk.events.some(e => e.type === 'user' && String(e.text).includes('<command-name>')))
   } finally {
     s.cleanup()
   }

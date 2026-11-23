@@ -82,7 +82,16 @@ export function apply(ctx, config) {
         const providers = []
         for (const provider of registry.list()) {
           const status = await detect(provider)
-          providers.push({ id: provider.id, label: provider.label, permissionModes: provider.permissionModes ?? [], reasoningEfforts: provider.reasoningEfforts ?? [], ...status })
+          providers.push({
+            id: provider.id,
+            label: provider.label,
+            permissionModes: provider.permissionModes ?? [],
+            reasoningEfforts: provider.reasoningEfforts ?? [],
+            commands: provider.commands ?? [],
+            compact: typeof provider.compact === 'function',
+            goal: typeof provider.setGoal === 'function',
+            ...status,
+          })
         }
         return { ok: true, providers }
       } catch (error) {
@@ -155,6 +164,30 @@ export function apply(ctx, config) {
         const provider = registry.get(providerId)
         if (provider.stopTask === undefined) throw new Error(`agent-cli: ${providerId} cannot stop tasks`)
         return { ok: true, error: await provider.stopTask(sessionId, taskId) }
+      } catch (error) {
+        return failure(error)
+      }
+    },
+    async compactSession(providerId, sessionId) {
+      try {
+        const provider = registry.get(providerId)
+        const status = await detect(provider)
+        if (!status.available) return { ok: false, error: status.error }
+        return { ok: true, ...(await turns.compact(provider, sessionId)) }
+      } catch (error) {
+        return failure(error)
+      }
+    },
+    async goalSession(providerId, sessionId, op, objective) {
+      try {
+        const provider = registry.get(providerId)
+        if (op === 'set') {
+          if (typeof objective !== 'string' || objective.trim() === '') return { ok: false, error: 'empty objective' }
+          return { ok: true, ...(await turns.goalSet(provider, sessionId, objective.trim())) }
+        }
+        if (op === 'get') return { ok: true, goal: (await provider.getGoal(sessionId)).goal ?? null }
+        if (op === 'clear') return { ok: true, ...(await provider.clearGoal(sessionId)) }
+        return { ok: false, error: `agent-cli: unknown goal op "${op}"` }
       } catch (error) {
         return failure(error)
       }

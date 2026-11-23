@@ -177,6 +177,11 @@
   background: linear-gradient(180deg, color-mix(in srgb, var(--dsw-alias-bg-base) 0%, transparent) 0px, var(--dsw-alias-bg-base) 36px);
 }
 
+/* The rising palette must paint over the tasks panel, which shares z9 later in the DOM. */
+.composerSeat:has([role='listbox']) {
+  z-index: 11;
+}
+
 .center {
   margin: auto;
   padding: 40px;

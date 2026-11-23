@@ -73,6 +73,10 @@ export function effortLabel(effort, t) {
   return Object.hasOwn(ZH, `effort.${effort}`) ? t(`effort.${effort}`) : effort
 }
 
+export function goalStatusLabel(status, t) {
+  return Object.hasOwn(ZH, `goal.status.${status}`) ? t(`goal.status.${status}`) : status
+}
+
 export function tokenCount(n) {
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`

@@ -39,6 +39,7 @@
 }
 
 .box {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -56,6 +57,39 @@
 .boxDrag {
   outline: 2px solid var(--dsw-alias-state-business-primary);
   outline-offset: -2px;
+}
+
+.overlayAnchor {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 0;
+}
+
+.add {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  /* 8px modes gap + 4px reads as dsh's 12px launcher-to-chip distance. */
+  margin-right: 4px;
+  border: none;
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-specific-selector);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .add:hover:not(:disabled) {
+    background: var(--dsw-alias-interactive-bg-hover-solid);
+  }
+}
+
+.add:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .attachments {

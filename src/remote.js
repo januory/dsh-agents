@@ -43,6 +43,8 @@ export const INVOCATIONS = [
   invocation('tasks', [jsonParameter('provider'), jsonParameter('sessionId')]),
   invocation('taskOutput', [jsonParameter('provider'), jsonParameter('sessionId'), jsonParameter('taskId')]),
   invocation('stopTask', [jsonParameter('provider'), jsonParameter('sessionId'), jsonParameter('taskId')]),
+  invocation('compactSession', [jsonParameter('provider'), jsonParameter('sessionId')]),
+  invocation('goalSession', [jsonParameter('provider'), jsonParameter('sessionId'), jsonParameter('op'), jsonParameter('objective', { optional: true })]),
   invocation('startTurn', [jsonParameter('provider'), jsonParameter('request')]),
   invocation('steerTurn', [jsonParameter('turnId'), jsonParameter('request')]),
   invocation('pollTurn', [jsonParameter('turnId'), jsonParameter('afterSeq')]),

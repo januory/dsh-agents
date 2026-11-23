@@ -27,6 +27,22 @@ export class TurnManager {
     const hasImages = Array.isArray(request?.images) && request.images.length > 0
     if (typeof request?.text !== 'string' || (request.text.trim() === '' && !hasImages)) throw new Error('agent-cli: message is empty')
     if (typeof request.cwd !== 'string' || request.cwd === '') throw new Error('agent-cli: a working directory is required')
+    return this.#begin(provider, request, (req, sink) => provider.startTurn(req, sink))
+  }
+
+  async compact(provider, sessionId) {
+    if (typeof provider.compact !== 'function') throw new Error(`agent-cli: ${provider.id} does not support compaction`)
+    if (typeof sessionId !== 'string' || sessionId === '') throw new Error('agent-cli: a session is required')
+    return this.#begin(provider, { sessionId }, (req, sink) => provider.compact(req.sessionId, sink))
+  }
+
+  async goalSet(provider, sessionId, objective) {
+    if (typeof provider.setGoal !== 'function') throw new Error(`agent-cli: ${provider.id} does not support goals`)
+    if (typeof sessionId !== 'string' || sessionId === '') throw new Error('agent-cli: a session is required')
+    return this.#begin(provider, { sessionId }, (req, sink) => provider.setGoal(req.sessionId, objective, sink))
+  }
+
+  async #begin(provider, request, launch) {
     for (const turn of this.#turns.values()) {
       if (turn.providerId === provider.id && turn.sessionId !== undefined && turn.sessionId === request.sessionId && LIVE_STATES.has(turn.status)) {
         throw new Error('agent-cli: this session already has a running turn')
@@ -73,7 +89,7 @@ export class TurnManager {
       },
     }
     try {
-      turn.handle = await provider.startTurn(request, sink)
+      turn.handle = await launch(request, sink)
       if (LIVE_STATES.has(turn.status)) turn.status = turn.status === 'starting' ? 'running' : turn.status
     } catch (error) {
       sink.finish({ status: 'error', error: messageOf(error) })

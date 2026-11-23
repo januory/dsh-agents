@@ -188,10 +188,100 @@ export function createCodexProvider(config) {
     }
   }
 
+  function usageFromReport(report) {
+    const last = report?.last ?? report?.total
+    return {
+      inputTokens: Math.max(0, (report?.total?.inputTokens ?? 0) - (report?.total?.cachedInputTokens ?? 0)),
+      outputTokens: report?.total?.outputTokens ?? 0,
+      cacheReadTokens: report?.total?.cachedInputTokens ?? 0,
+      cacheWriteTokens: report?.total?.cacheWriteInputTokens ?? 0,
+      contextTokens: last?.totalTokens ?? 0,
+      capacity: report?.modelContextWindow ?? null,
+    }
+  }
+
+  async function ensureLoaded(rpc, threadId) {
+    if (ownThreads.has(threadId)) return
+    // No overrides: a command must not change the thread's model or approval policy.
+    await rpc.request('thread/resume', { threadId, excludeTurns: true }, { timeoutMs: 60_000 })
+    ownThreads.add(threadId)
+  }
+
+  // Compaction and goal-set run as server-side turns; track them like a turn but
+  // without approvals or steering, which neither command accepts.
+  async function commandTurn(threadId, sink, start) {
+    const rpc = await ensure()
+    // Turns unsubscribe on finish; compact/goal turns do not re-subscribe by themselves.
+    await rpc.request('thread/resume', { threadId, excludeTurns: true }, { timeoutMs: 60_000 })
+    ownThreads.add(threadId)
+    sink.setSession(threadId)
+    const turnKey = randomUUID().slice(0, 8)
+    sink.emit({ id: `${turnKey}:meta`, type: 'meta', ts: Date.now() })
+    const items = new Map()
+    let turnId
+    let settled = false
+    const finish = result => {
+      if (settled) return
+      settled = true
+      routers.delete(threadId)
+      sink.finish(result)
+      void rpc.request('thread/unsubscribe', { threadId }).catch(() => {})
+    }
+    routers.set(threadId, {
+      askApproval: async () => ({ decision: 'cancel' }),
+      askQuestion: async () => ({ answers: {} }),
+      appendOutput: () => {},
+      fail: reason => finish({ status: 'error', error: reason }),
+      onNotification(method, params) {
+        if (params.threadId !== threadId) return
+        switch (method) {
+          case 'item/started':
+          case 'item/completed': {
+            const event = codexItemToEvent(params.item, Date.now(), method === 'item/completed')
+            if (event === undefined) return
+            const previous = items.get(event.id)
+            const merged = previous === undefined ? event : { ...previous, ...event }
+            items.set(event.id, merged)
+            sink.emit(merged)
+            return
+          }
+          case 'thread/tokenUsage/updated':
+            threadUsage.set(threadId, usageFromReport(params.tokenUsage))
+            return
+          case 'turn/completed': {
+            const status = params.turn?.status === 'completed' ? 'done' : params.turn?.status === 'interrupted' ? 'cancelled' : 'error'
+            finish({ status, error: status === 'error' ? params.turn?.error?.message ?? 'turn failed' : undefined })
+            return
+          }
+          case 'error':
+            if (params.willRetry === false) finish({ status: 'error', error: params.error?.message ?? 'error' })
+            return
+          default:
+            return
+        }
+      },
+    })
+    try {
+      const response = await start(rpc)
+      turnId = response?.turn?.id
+    } catch (error) {
+      finish({ status: 'error', error: messageOf(error) })
+      throw error
+    }
+    return {
+      cancel: () => {
+        if (!settled && turnId !== undefined) void rpc.request('turn/interrupt', { threadId, turnId }).catch(() => {})
+      },
+      answer: () => {},
+      dispose: () => finish({ status: 'cancelled' }),
+    }
+  }
+
   return {
     id: 'codex',
     label: 'Codex',
     permissionModes: PERMISSION_MODES,
+    commands: ['goal', 'compact'],
 
     async detect() {
       const command = resolveCommand(commandName)
@@ -379,16 +469,7 @@ export function createCodexProvider(config) {
               const report = params.tokenUsage
               const last = report?.last ?? report?.total
               if (last) usage = { inputTokens: last.inputTokens, outputTokens: last.outputTokens }
-              if (report !== undefined) {
-                threadUsage.set(params.threadId ?? threadId, {
-                  inputTokens: Math.max(0, (report.total?.inputTokens ?? 0) - (report.total?.cachedInputTokens ?? 0)),
-                  outputTokens: report.total?.outputTokens ?? 0,
-                  cacheReadTokens: report.total?.cachedInputTokens ?? 0,
-                  cacheWriteTokens: report.total?.cacheWriteInputTokens ?? 0,
-                  contextTokens: last?.totalTokens ?? 0,
-                  capacity: report.modelContextWindow ?? null,
-                })
-              }
+              if (report !== undefined) threadUsage.set(params.threadId ?? threadId, usageFromReport(report))
               return
             }
             case 'error':
@@ -453,6 +534,26 @@ export function createCodexProvider(config) {
           finish({ status: 'cancelled' })
         },
       }
+    },
+
+    compact(sessionId, sink) {
+      return commandTurn(sessionId, sink, rpc => rpc.request('thread/compact/start', { threadId: sessionId }, { timeoutMs: 60_000 }))
+    },
+
+    setGoal(sessionId, objective, sink) {
+      return commandTurn(sessionId, sink, rpc => rpc.request('thread/goal/set', { threadId: sessionId, objective, origin: 'user' }, { timeoutMs: 60_000 }))
+    },
+
+    async getGoal(sessionId) {
+      const rpc = await ensure()
+      await ensureLoaded(rpc, sessionId)
+      return rpc.request('thread/goal/get', { threadId: sessionId })
+    },
+
+    async clearGoal(sessionId) {
+      const rpc = await ensure()
+      await ensureLoaded(rpc, sessionId)
+      return rpc.request('thread/goal/clear', { threadId: sessionId, origin: 'user' })
     },
 
     dispose() {

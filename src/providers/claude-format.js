@@ -56,6 +56,8 @@ export function userTextOf(message) {
 function isHumanUser(record) {
   if (record.type !== 'user' || record.isSidechain === true || record.isMeta === true) return false
   const content = record.message?.content
+  const text = typeof content === 'string' ? content : Array.isArray(content) ? content.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n') : ''
+  if (text.includes('<command-name>') || text.includes('<local-command-stdout>')) return false
   if (typeof content === 'string') return true
   return Array.isArray(content) && content.some(block => block.type === 'text')
 }
@@ -84,6 +86,8 @@ export function parseClaudeRecords(records) {
       const content = record.message?.content
       if (record.isMeta !== true && (typeof content === 'string' || Array.isArray(content))) {
         const text = typeof content === 'string' ? content : userTextOf(record.message)
+        // Slash-command plumbing records; the compact boundary row carries the visible outcome.
+        if (text.includes('<command-name>') || text.includes('<local-command-stdout>')) continue
         const imageCount = Array.isArray(content) ? content.filter(b => b.type === 'image').length : 0
         // The CLI feeds completion notifications to the model as user text; the task panel owns that display.
         if (taskNotificationOf(text) === undefined && (text.trim() !== '' || imageCount > 0)) put({ id: record.uuid, type: 'user', ts: time, text, ...(imageCount > 0 ? { imageCount } : {}) })

@@ -36,6 +36,12 @@ function epochMs(value) {
   return value < 1e11 ? value * 1000 : value
 }
 
+function localCommandOf(frame) {
+  const content = frame.message?.content
+  const text = typeof content === 'string' ? content : Array.isArray(content) ? content.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n') : ''
+  return text.includes('<local-command-stdout>') ? text : undefined
+}
+
 function optionKey(options) {
   return `${options?.permissionMode ?? ''}|${options?.model ?? ''}|${options?.effort ?? ''}`
 }
@@ -524,10 +530,18 @@ export function createClaudeProvider(config) {
         }
         if (frame.type === 'user' && !frame.parent_tool_use_id) {
           const content = frame.message?.content
-          if (frame.isMeta !== true && Array.isArray(content) && content.some(block => block.type === 'text' || block.type === 'image')) turn.queued.shift()
+          // Command replays (/goal) arrive as string content; they still consume the written message.
+          const hasText = typeof content === 'string' ? content.trim() !== '' : Array.isArray(content) && content.some(block => block.type === 'text' || block.type === 'image')
+          if (frame.isMeta !== true && hasText) turn.queued.shift()
           if (Array.isArray(content)) for (const block of content) if (block.type === 'tool_result') onToolResult(entry, block, Date.now())
         }
         turn.live.onFrame(frame)
+        // Local slash commands (/compact) settle through a stdout record; the CLI sends no result frame for them.
+        if (frame.type === 'user' && !frame.parent_tool_use_id && localCommandOf(frame) !== undefined) {
+          turn.sink.emit({ id: randomUUID(), type: 'turn', ts: Date.now(), phase: 'end', reason: 'compact' })
+          settleTurn(entry, { status: 'done', usage: { ...turn.usage } })
+          return
+        }
         if (frame.type === 'result') {
           const frameUsage = frame.usage ?? {}
           turn.usage.inputTokens += frameUsage.input_tokens ?? 0
@@ -574,6 +588,8 @@ export function createClaudeProvider(config) {
     id: 'claude',
     label: 'Claude Code',
     permissionModes: PERMISSION_MODES,
+    // Proven against the CLI: /goal and /compact parse from stream-json input; /plan reports unavailable in print mode.
+    commands: ['goal', 'compact'],
     reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
 
     async detect() {
