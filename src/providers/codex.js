@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { capture, resolveCommand } from './cli.js'
+import { capture, expandHome, resolveCommand } from './cli.js'
 import { tailText } from './files.js'
 import { JsonRpcClient } from './jsonrpc.js'
 import { codexItemToEvent, codexThreadSummary } from './codex-format.js'
@@ -15,12 +15,6 @@ const LIST_MAX_PAGES = 10
 const ITEMS_PAGE = 500
 const ITEMS_MAX_PAGES = 8
 const SOURCE_KINDS = ['cli', 'vscode', 'exec', 'appServer']
-
-function expandHome(path) {
-  if (path === '~') return homedir()
-  if (path.startsWith('~/')) return join(homedir(), path.slice(2))
-  return path
-}
 
 function launchParams(options) {
   const params = {}

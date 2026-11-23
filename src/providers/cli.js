@@ -1,7 +1,9 @@
-import { spawn } from 'node:child_process'
-import { accessSync, constants } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { accessSync, constants, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, isAbsolute, join } from 'node:path'
+import { delimiter, extname, isAbsolute, join, resolve } from 'node:path'
+
+const windows = process.platform === 'win32'
 
 const FALLBACK_DIRS = [
   join(homedir(), '.local', 'bin'),
@@ -9,8 +11,7 @@ const FALLBACK_DIRS = [
   join(homedir(), '.volta', 'bin'),
   join(homedir(), '.npm-global', 'bin'),
   join(homedir(), '.cargo', 'bin'),
-  '/opt/homebrew/bin',
-  '/usr/local/bin',
+  ...(windows ? [join(homedir(), 'AppData', 'Roaming', 'npm'), join(homedir(), 'AppData', 'Local', 'pnpm')] : ['/opt/homebrew/bin', '/usr/local/bin']),
 ]
 
 const live = new Set()
@@ -18,29 +19,47 @@ process.on('exit', () => {
   for (const child of live) killTree(child, 'SIGKILL')
 })
 
+export function expandHome(path) {
+  if (path === '~') return homedir()
+  if (path.startsWith('~/') || (windows && path.startsWith('~\\'))) return join(homedir(), path.slice(2))
+  return path
+}
+
 /**
  * Resolve a CLI command to an executable path. A GUI-launched host may carry a
  * minimal PATH, so common user install directories are searched as a fallback.
+ * Accepts a bare name or a path (absolute, `~`-prefixed or relative) with either
+ * separator; on Windows PATHEXT extensions are tried the way cmd.exe tries them.
  * @param {string} command
  * @returns {string | undefined}
  */
 export function resolveCommand(command) {
-  if (command.includes('/')) {
-    const expanded = command.startsWith('~/') ? join(homedir(), command.slice(2)) : command
-    return isAbsolute(expanded) && executable(expanded) ? expanded : undefined
+  const expanded = expandHome(command)
+  if (isAbsolute(expanded) || expanded.includes('/') || (windows && expanded.includes('\\'))) {
+    for (const candidate of candidates(resolve(expanded))) if (executable(candidate)) return candidate
+    return undefined
   }
   const dirs = [...(process.env.PATH ?? '').split(delimiter).filter(Boolean), ...FALLBACK_DIRS]
   for (const dir of dirs) {
-    const candidate = join(dir, command)
-    if (executable(candidate)) return candidate
+    for (const candidate of candidates(join(dir, expanded))) if (executable(candidate)) return candidate
   }
   return undefined
+}
+
+// npm on Windows writes an extensionless sh shim beside the .cmd; it is not
+// spawnable, so a bare name is only tried when it already carries an extension.
+function candidates(name) {
+  if (!windows) return [name]
+  const exts = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').map(ext => ext.trim().toLowerCase()).filter(ext => ext.startsWith('.'))
+  const ext = extname(name).toLowerCase()
+  if (ext === '') return exts.map(suffix => name + suffix)
+  return exts.includes(ext) ? [name] : [name, ...exts.map(suffix => name + suffix)]
 }
 
 function executable(path) {
   try {
     accessSync(path, constants.X_OK)
-    return true
+    return statSync(path).isFile()
   } catch {
     return false
   }
@@ -49,11 +68,23 @@ function executable(path) {
 export function killTree(child, signal = 'SIGTERM') {
   if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return
   try {
-    if (process.platform !== 'win32') process.kill(-child.pid, signal)
-    else child.kill(signal)
+    if (!windows) process.kill(-child.pid, signal)
+    else {
+      // Windows signals are an unconditional TerminateProcess of the one process,
+      // which would orphan the CLI behind a .cmd wrapper and any shells it spawned.
+      const result = spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 })
+      if (result.status !== 0) child.kill(signal)
+    }
   } catch {
     try { child.kill(signal) } catch { /* already gone */ }
   }
+}
+
+// Node >= 22 refuses to spawn .cmd/.bat directly (CVE-2024-27980), so cmd.exe runs
+// them; it re-parses the line, hence ^ escapes on top of the C-runtime quoting.
+function cmdLaunch(command, args) {
+  const quote = arg => `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1')}"`.replace(/([()%!^"<>&|])/g, '^$1')
+  return { command: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', `"${[command, ...args].map(quote).join(' ')}"`] }
 }
 
 /**
@@ -62,12 +93,14 @@ export function killTree(child, signal = 'SIGTERM') {
  * @returns {{ write: (text: string) => void, endInput: () => void, kill: () => void, pid: number | undefined, stderr: () => string }}
  */
 export function spawnLines(spec) {
-  const child = spawn(spec.command, spec.args, {
+  const wrapped = windows && /\.(cmd|bat)$/i.test(spec.command) ? cmdLaunch(spec.command, spec.args) : undefined
+  const child = spawn(wrapped?.command ?? spec.command, wrapped?.args ?? spec.args, {
     cwd: spec.cwd,
     env: { ...process.env, ...spec.env },
     stdio: ['pipe', 'pipe', 'pipe'],
-    detached: process.platform !== 'win32',
+    detached: !windows,
     windowsHide: true,
+    windowsVerbatimArguments: wrapped !== undefined,
   })
   live.add(child)
   let stdoutRest = ''

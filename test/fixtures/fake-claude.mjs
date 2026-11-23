@@ -10,7 +10,7 @@ const resume = process.argv.find(a => a.startsWith('--resume='))?.slice('--resum
 const modelAt = process.argv.indexOf('--model')
 const model = modelAt === -1 ? 'fake-model' : process.argv[modelAt + 1]
 const sessionId = resume ?? `fake-${randomUUID().slice(0, 8)}`
-const dir = join(home, 'projects', cwd.replace(/[/.]/g, '-'))
+const dir = join(home, 'projects', cwd.replace(/[\\/:.]/g, '-'))
 mkdirSync(dir, { recursive: true })
 const transcript = join(dir, `${sessionId}.jsonl`)
 const log = process.env.FAKE_SPAWN_LOG

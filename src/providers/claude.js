@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { capture, parseJsonLine, resolveCommand, spawnLines } from './cli.js'
+import { capture, expandHome, parseJsonLine, resolveCommand, spawnLines } from './cli.js'
 import { headTail, tailRecords, tailText } from './files.js'
 import { ClaudeLive, claudeUsageOf, mergeTasks, parseClaudeRecords, resultText, summarizeClaude, tasksFromRecords } from './claude-format.js'
 import { messageOf } from '../remote.js'
@@ -14,12 +14,6 @@ const MAX_TASK_OUTPUT_BYTES = 128 * 1024
 // The CLI owns its background shells: closing stdin or killing the process
 // group at turn end would kill them before they write a completion record.
 const IDLE_CHILD_MS = 30 * 60_000
-
-function expandHome(path) {
-  if (path === '~') return homedir()
-  if (path.startsWith('~/')) return join(homedir(), path.slice(2))
-  return path
-}
 
 function pidAlive(pid) {
   if (typeof pid !== 'number') return false
@@ -331,8 +325,9 @@ export function createClaudeProvider(config) {
   function onTaskFrame(entry, frame) {
     const at = Date.now()
     const base = { id: frame.task_id, taskId: frame.task_id, toolUseId: frame.tool_use_id }
+    const known = findTask(entry, frame.task_id, frame.tool_use_id)
     // Agent frames carry a live placeholder description ("Running …"); the launch description is the stable name.
-    const label = findTask(entry, frame.task_id, frame.tool_use_id)?.label || frame.description || ''
+    const label = known?.label || frame.description || ''
     if (frame.subtype === 'task_started') {
       upsertTask(entry, {
         ...base,
@@ -366,7 +361,8 @@ export function createClaudeProvider(config) {
       const update = { id: frame.task_id }
       if (patch.status !== undefined) update.status = patch.status
       if (patch.description !== undefined) update.label = patch.description
-      if (patch.end_time !== undefined) update.finishedAt = epochMs(patch.end_time)
+      // end_time is second-resolution; truncated it can land before the millisecond start clock.
+      if (patch.end_time !== undefined) update.finishedAt = Math.max(epochMs(patch.end_time), known?.startedAt ?? 0)
       if (patch.error !== undefined) update.detail = String(patch.error)
       upsertTask(entry, update)
       return

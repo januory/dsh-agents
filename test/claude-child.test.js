@@ -9,13 +9,18 @@ import { TurnManager } from '../src/turns.js'
 
 const fixture = fileURLToPath(new URL('./fixtures/fake-claude.mjs', import.meta.url))
 chmodSync(fixture, 0o755)
+const windows = process.platform === 'win32'
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+const alive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-agents-claude-'))
   const home = join(dir, 'home')
   const cwd = join(dir, 'work')
   mkdirSync(cwd, { recursive: true })
+  // Windows cannot exec a shebang script; the npm-style .cmd shim is what a real install ships there.
+  const command = windows ? join(dir, 'fake-claude.cmd') : fixture
+  if (windows) writeFileSync(command, `@"${process.execPath}" "${fixture}" %*\r\n`)
   const log = join(dir, 'spawns.log')
   writeFileSync(log, '')
   const saved = { config: process.env.CLAUDE_CONFIG_DIR, log: process.env.FAKE_SPAWN_LOG, window: process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS }
@@ -23,13 +28,16 @@ function setup() {
   process.env.FAKE_SPAWN_LOG = log
   delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
   const learned = []
-  const provider = createClaudeProvider({ command: fixture, home, onCapacity: (model, window) => learned.push([model, window]) })
+  const provider = createClaudeProvider({ command, home, onCapacity: (model, window) => learned.push([model, window]) })
   const turns = new TurnManager({ retentionMs: 60_000 })
   const lines = () => readFileSync(log, 'utf8').split('\n').filter(Boolean)
   return {
-    dir, home, cwd, provider, turns, learned,
+    dir, home, cwd, provider, turns, learned, command,
     spawns: () => lines().filter(l => l.startsWith('spawn')).length,
-    exits: () => lines().filter(l => l.startsWith('exit')).length,
+    // A Windows kill is TerminateProcess, so the fixture never gets to log its exit; count dead pids instead.
+    exits: () => windows
+      ? lines().filter(l => l.startsWith('spawn')).filter(l => !alive(Number(l.split(' ')[1]))).length
+      : lines().filter(l => l.startsWith('exit')).length,
     cleanup() {
       turns.dispose()
       provider.dispose()
@@ -49,6 +57,15 @@ async function waitStatus(turns, turnId, statuses, timeout = 5000) {
     await sleep(20)
   }
   throw new Error(`turn ${turnId} never reached ${statuses.join('|')}: ${JSON.stringify(turns.poll(turnId, 0).status)}`)
+}
+
+async function waitExits(s, count, timeout = 5000) {
+  const until = Date.now() + timeout
+  while (Date.now() < until) {
+    if (s.exits() >= count) return
+    await sleep(20)
+  }
+  throw new Error(`expected ${count} exited children, saw ${s.exits()}`)
 }
 
 async function waitTask(provider, sessionId, taskId, status, timeout = 5000, ready = () => true) {
@@ -88,11 +105,11 @@ test('one child serves successive turns; a background task outlives the turn and
     assert.equal(disk.usage.capacity, 200_000)
     assert.ok(disk.usage.steps >= 1)
     assert.deepEqual(s.learned, [['fake-model', 200_000]])
-    const seeded = createClaudeProvider({ command: fixture, home: s.home, capacity: { 'fake-model': 200_000 } })
+    const seeded = createClaudeProvider({ command: s.command, home: s.home, capacity: { 'fake-model': 200_000 } })
     assert.equal((await seeded.readTranscript(sessionId)).usage.capacity, 200_000)
     seeded.dispose()
     writeFileSync(join(s.home, 'settings.json'), JSON.stringify({ env: { CLAUDE_CODE_MAX_CONTEXT_TOKENS: 500_000 } }))
-    const configured = createClaudeProvider({ command: fixture, home: s.home, capacity: { 'fake-model': 200_000 } })
+    const configured = createClaudeProvider({ command: s.command, home: s.home, capacity: { 'fake-model': 200_000 } })
     assert.equal((await configured.readTranscript(sessionId)).usage.capacity, 500_000)
     configured.dispose()
     const second = await s.turns.start(s.provider, { cwd: s.cwd, sessionId, text: 'again' })
@@ -101,9 +118,7 @@ test('one child serves successive turns; a background task outlives the turn and
     assert.ok(secondDone.events.some(e => e.type === 'meta' && e.model === 'fake-model'))
     assert.equal(s.spawns(), 1)
     s.provider.dispose()
-    const until = Date.now() + 3000
-    while (s.exits() === 0 && Date.now() < until) await sleep(20)
-    assert.equal(s.exits(), 1)
+    await waitExits(s, 1)
   } finally {
     s.cleanup()
   }
@@ -114,7 +129,8 @@ test('subagent progress and completion reach the task view with counters', async
   try {
     const { turnId } = await s.turns.start(s.provider, { cwd: s.cwd, text: 'AGENT' })
     const { sessionId } = await waitStatus(s.turns, turnId, ['done'])
-    const task = await waitTask(s.provider, sessionId, 'toolu_ag', 'completed', 5000, t => t.detail !== undefined && t.durationMs === 900)
+    // The disk notification lands before the live frame; wait for the live counters to catch up.
+    const task = await waitTask(s.provider, sessionId, 'toolu_ag', 'completed', 5000, t => t.detail !== undefined && t.tokens === 1500)
     assert.equal(s.provider.tasks(sessionId).length, 1)
     assert.equal(task.kind, 'agent')
     assert.equal(task.subagentType, 'Explore')
@@ -152,7 +168,7 @@ test('changed launch options restart the child; approvals and interrupt still wo
     const d = await s.turns.start(s.provider, { cwd: s.cwd, sessionId, text: 'other model', options: { model: 'other' } })
     await waitStatus(s.turns, d.turnId, ['done'])
     assert.equal(s.spawns(), 2)
-    assert.equal(s.exits(), 1)
+    await waitExits(s, 1)
   } finally {
     s.cleanup()
   }

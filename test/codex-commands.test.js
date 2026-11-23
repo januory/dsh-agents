@@ -21,7 +21,7 @@ function setup() {
   const turns = new TurnManager({ retentionMs: 60_000 })
   return {
     dir, provider, turns,
-    requests: () => readFileSync(log, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)),
+    requests: () => readFileSync(log, 'utf8').split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line)),
     cleanup() {
       turns.dispose()
       provider.dispose()
