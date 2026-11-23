@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  IconChevronDownOutlineRegular, IconCloseFillRegular, IconDataOutlineRegular, IconRefreshOutlineRegular, IconThinkOutlineMedium, ImageLightbox, Menu, MenuItemButton,
+  IconChevronDownOutlineRegular, IconCloseFillRegular, IconDataOutlineRegular, IconRefreshOutlineRegular, IconThinkOutlineMedium, ImageLightbox, Menu,
   PermissionIconAutoReviewMedium, PermissionIconFullAccessMedium, PermissionIconReadOnlyMedium, PermissionIconWorkspaceWriteMedium,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
 import { holdAttachments, readDraft, takeAttachments, writeDraft } from './drafts.js'
-import { effortLabel, modeLabel } from './labels.js'
+import { effortLabel, modeDesc, modeLabel } from './labels.js'
 import { IMAGE_TYPES, MAX_IMAGE_BYTES, uploadImage } from './uploads.js'
 import { WorkspaceSelect } from './WorkspaceSelect.jsx'
 import { AgentChips } from './Tasks.jsx'
@@ -66,9 +66,7 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
   const [text, setText] = useState(() => readDraft(draftKey))
   const [cwd, setCwd] = useState(initialCwd ?? '')
   const [modeOpen, setModeOpen] = useState(false)
-  const [effortOpen, setEffortOpen] = useState(false)
   const [modelOpen, setModelOpen] = useState(false)
-  const [modelQuery, setModelQuery] = useState('')
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [attachments, setAttachments] = useState(() => takeAttachments(draftKey))
   const [notice, setNotice] = useState(null)
@@ -147,8 +145,6 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
   // Like dsh: a running turn keeps Stop only while the draft is empty; typing
   // turns the button back into Send, which steers the running turn.
   const showStop = busy && !sending && !hasDraft
-  const filtered = modelQuery.trim() === '' ? modelList : modelList.filter(m => m.id.toLowerCase().includes(modelQuery.trim().toLowerCase()) || m.label.toLowerCase().includes(modelQuery.trim().toLowerCase()))
-  const exact = modelList.some(m => m.id === modelQuery.trim())
 
   const submit = () => {
     if (!canSend) return
@@ -162,7 +158,6 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
   const pickModel = id => {
     onLaunch({ model: id })
     setModelOpen(false)
-    setModelQuery('')
   }
 
   return (
@@ -248,7 +243,16 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
               <Menu
                 open={modeOpen}
                 onClose={() => setModeOpen(false)}
-                items={modes.map(mode => ({ id: mode === '' ? '__default' : mode, label: modeLabel(mode, t), icon: (() => { const Glyph = MODE_GLYPHS[mode] ?? PermissionIconWorkspaceWriteMedium; return <Glyph size={16} /> })() }))}
+                items={modes.map(mode => ({
+                  id: mode === '' ? '__default' : mode,
+                  label: (
+                    <span className={css.modeItem}>
+                      <span className={css.modeItemName}>{modeLabel(mode, t)}</span>
+                      {modeDesc(mode, t) !== '' && <span className={css.modeItemDesc}>{modeDesc(mode, t)}</span>}
+                    </span>
+                  ),
+                  icon: (() => { const Glyph = MODE_GLYPHS[mode] ?? PermissionIconWorkspaceWriteMedium; return <Glyph size={16} /> })(),
+                }))}
                 selectedId={permissionMode === '' ? '__default' : permissionMode}
                 align="start"
                 side="top"
@@ -266,60 +270,56 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
                   </button>
                 )}
               />
-              {efforts.length > 0 && (
-                <Menu
-                  open={effortOpen}
-                  onClose={() => setEffortOpen(false)}
-                  items={[{ id: '__default', label: t('effort.default') }, ...efforts.map(level => ({ id: level, label: effortLabel(level, t) }))]}
-                  selectedId={effort === '' ? '__default' : effort}
-                  align="start"
-                  side="top"
-                  portal
-                  listClassName={css.menu}
-                  onSelect={id => {
-                    onLaunch({ effort: id === '__default' ? '' : id })
-                    setEffortOpen(false)
-                  }}
-                  anchor={(
-                    <button type="button" className={css.chip} aria-label={t('effort.label')} aria-haspopup="menu" aria-expanded={effortOpen} disabled={blocked} onClick={() => setEffortOpen(v => !v)}>
-                      <span className={css.chipIcon} aria-hidden><IconThinkOutlineMedium size={16} /></span>
-                      <span className={css.chipLabel}>{effortLabel(effort, t)}</span>
-                      <IconChevronDownOutlineRegular size={14} className={cx(css.chevron, effortOpen && css.chevronOpen)} />
-                    </button>
-                  )}
-                />
-              )}
               <AgentChips tasks={tasks ?? []} t={t} />
             </div>
             <div className={css.trailing}>
               <Menu
                 open={modelOpen}
-                onClose={() => { setModelOpen(false); setModelQuery('') }}
+                onClose={() => setModelOpen(false)}
                 items={[
-                  { id: '__default', label: t('model.default') },
-                  ...filtered.map(m => ({ id: m.id, label: m.label })),
+                  {
+                    id: '__model_pane',
+                    label: modelLabel,
+                    icon: <IconDataOutlineRegular size={16} />,
+                    submenu: [
+                      { type: 'label', id: 'models-head', text: name },
+                      { id: '__model_default', label: t('model.default') },
+                      ...modelList.map(m => ({ id: m.id, label: m.label })),
+                    ],
+                  },
+                  ...(efforts.length > 0 ? [{
+                    id: '__effort_pane',
+                    label: effortLabel(effort, t),
+                    icon: <IconThinkOutlineMedium size={16} />,
+                    submenu: [
+                      { id: '__effort_default', label: t('effort.default') },
+                      ...efforts.map(level => ({ id: level, label: effortLabel(level, t) })),
+                    ],
+                  }] : []),
                 ]}
-                selectedId={model === '' ? '__default' : model}
+                selectedIds={[model === '' ? '__model_default' : model, effort === '' ? '__effort_default' : effort]}
                 align="end"
                 side="top"
                 portal
                 dense
                 maxVisibleRows={10}
+                submenuBackLabel={t('menu.back')}
                 listClassName={css.modelMenu}
-                search={{ label: t('model.search'), clearLabel: t('search.clear'), value: modelQuery, onChange: setModelQuery, emptyMessage: models?.loading ? t('model.loading') : t('model.empty') }}
-                onSelect={id => pickModel(id === '__default' ? '' : id)}
+                onSelect={id => {
+                  if (id === '__model_default') pickModel('')
+                  else if (id === '__effort_default') onLaunch({ effort: '' })
+                  else if (efforts.includes(id)) onLaunch({ effort: id })
+                  else pickModel(id)
+                  setModelOpen(false)
+                }}
                 anchor={(
-                  <button type="button" className={css.chip} aria-label={t('page.model')} aria-haspopup="menu" aria-expanded={modelOpen} disabled={blocked} title={modelLabel} onClick={() => setModelOpen(v => !v)}>
+                  <button type="button" className={css.chip} aria-label={t('page.model')} aria-haspopup="menu" aria-expanded={modelOpen} disabled={blocked} title={efforts.length > 0 ? `${modelLabel} · ${effortLabel(effort, t)}` : modelLabel} onClick={() => setModelOpen(v => !v)}>
                     <IconDataOutlineRegular size={16} className={css.modelIcon} />
-                    <span className={css.chipLabel}>{modelLabel}</span>
+                    <span className={css.chipLabel}>{efforts.length > 0 ? `${modelLabel} · ${effortLabel(effort, t)}` : modelLabel}</span>
                     <IconChevronDownOutlineRegular size={14} className={cx(css.chevron, modelOpen && css.chevronOpen)} />
                   </button>
                 )}
-              >
-                {modelQuery.trim() !== '' && !exact && (
-                  <MenuItemButton onSelect={() => pickModel(modelQuery.trim())}>{t('model.use', { id: modelQuery.trim() })}</MenuItemButton>
-                )}
-              </Menu>
+              />
               <Tooltip label={showStop ? t('composer.stop') : t('composer.send')} side="top" delayMs={500} portal disabled={blocked && !busy}>
                 <button
                   type="button"

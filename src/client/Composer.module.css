@@ -302,6 +302,31 @@
   min-width: 220px;
 }
 
+/* Two-line mode rows keep the glyph on the name line instead of the row's middle. */
+.menu button > span:first-child {
+  align-self: flex-start;
+  margin-top: 3px;
+}
+
+/* dsh's preset rows: the name over a caption-tone description. */
+.modeItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.modeItemName {
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.modeItemDesc {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-caption);
+  white-space: normal;
+}
+
 .modelMenu {
   min-width: 280px;
 }

@@ -63,6 +63,11 @@ export function modeLabel(mode, t) {
   return Object.hasOwn(ZH, `mode.${mode}`) ? t(`mode.${mode}`) : mode
 }
 
+export function modeDesc(mode, t) {
+  const key = mode === '' ? 'mode.desc.default' : `mode.desc.${mode}`
+  return Object.hasOwn(ZH, key) ? t(key) : ''
+}
+
 export function effortLabel(effort, t) {
   if (effort === '') return t('effort.default')
   return Object.hasOwn(ZH, `effort.${effort}`) ? t(`effort.${effort}`) : effort
