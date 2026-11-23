@@ -1,0 +1,47 @@
+# push 之后自动跑一次单元测试（npm test）：
+#   触发：任何分支的 push（branches: '**' —— 不含发版时的 tag push，避免重复跑）。
+#   与 release.yml 保持一致：Node 22 + npm install --no-audit --no-fund。
+#   同一 ref 的连续 push 只保留最新一次运行（cancel-in-progress）。
+#   Windows 也跑全量：CLI 解析/启动/终止的 Windows 分支只在 Windows runner 上生效。
+
+name: test
+
+on:
+  push:
+    branches:
+      - '**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unit-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # npm test 里的 test/*.test.js 通配由 shell 展开，Windows 默认的 cmd.exe 不展开。
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build client bundle
+        run: npm run build:client
+
+      - name: Run unit tests
+        run: npm test
