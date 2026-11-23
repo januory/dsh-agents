@@ -24,6 +24,12 @@ export function apply(ctx) {
     }
   })
 
+  // dsh composes the directory flow (native chooser or in-browser browse) into
+  // these holes; occupancy tells the add affordance whether a flow can answer.
+  const flowSource = hole => ({
+    getSnapshot: () => ctx.slots.entries(hole).length > 0,
+    subscribe: listener => ctx.slots.subscribe(hole, listener),
+  })
   const hooks = {
     agentView: controller.view,
     agentProviders: controller.providers,
@@ -32,6 +38,8 @@ export function apply(ctx) {
     agentSettings: controller.settings,
     agentModels: controller.models,
     agentChrome: controller.chrome,
+    pickerDirectoryFlow: flowSource('workspace.picker.directoryFlow'),
+    sidebarDirectoryFlow: flowSource('sidebar.workspaces.directoryFlow'),
   }
   // Stable identities: slot owners re-invoke inject on every render, and
   // effects downstream key on these callbacks.
@@ -62,7 +70,13 @@ export function apply(ctx) {
     stopTask: taskId => controller.stopTask(taskId),
     clearTasks: () => controller.clearSettledTasks(),
     saveSettings: providers => controller.saveSettings(providers),
-    pickDirectory: () => ctx.uiWorkspace.pickDirectory(),
+    // dsh's picker packages own the flow holes; rendering their occupant with
+    // our owner conversation keeps both backends dsh's without redeclaring a
+    // hole the workspace plugin already declares.
+    directoryFlowOccupant: () => {
+      const entry = ctx.slots.entries('workspace.picker.directoryFlow')[0]
+      return entry === undefined ? null : { Component: entry.component, face: entry.inject?.() ?? {} }
+    },
   }
   const injected = () => ({ hooks, ...callbacks })
 

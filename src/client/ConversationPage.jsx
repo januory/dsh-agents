@@ -30,7 +30,7 @@ function useStickToBottom(dep) {
  * composer below. It is a root main panel, so it carries no dsh session.
  */
 export function ConversationPage(props) {
-  const { t, useAgentView, useAgentTranscript, useAgentProviders, useAgentSessions, useAgentSettings, useAgentModels, send, cancel, answer, answerQuestion, loadTaskOutput, clearTasks, stopTask, showEarlier, setSource, setLaunch, pickDirectory, addWorkspace } = props
+  const { t, useAgentView, useAgentTranscript, useAgentProviders, useAgentSessions, useAgentSettings, useAgentModels, usePickerDirectoryFlow, send, cancel, answer, answerQuestion, loadTaskOutput, clearTasks, stopTask, showEarlier, setSource, setLaunch, addWorkspace, directoryFlowOccupant } = props
   const source = useAgentView(s => s.source)
   const transcript = useAgentTranscript(s => s)
   const providers = useAgentProviders(s => s.list)
@@ -133,7 +133,8 @@ export function ConversationPage(props) {
       workspaces={workspaces}
       initialCwd={transcript.cwd}
       newNonce={transcript.newNonce}
-      pickDirectory={pickDirectory}
+      directoryFlowOccupant={directoryFlowOccupant}
+      useDirectoryFlow={usePickerDirectoryFlow}
       addWorkspace={addWorkspace}
       onLaunch={patch => setLaunch(source, patch)}
       onStop={() => { void cancel() }}

@@ -63,7 +63,7 @@ function SendGlyph({ kind }) {
  * left and the model chip plus the round send button right. Both chips carry
  * the CLI's own options; empty means the CLI's own default.
  */
-export function Composer({ t, name, provider, session, isNew, hero, busy, sending, disabledReason, launch, tasks, usage, models, workspaces, initialCwd, newNonce, draftKey, onSend, onStop, onLaunch, pickDirectory, addWorkspace }) {
+export function Composer({ t, name, provider, session, isNew, hero, busy, sending, disabledReason, launch, tasks, usage, models, workspaces, initialCwd, newNonce, draftKey, onSend, onStop, onLaunch, directoryFlowOccupant, useDirectoryFlow, addWorkspace }) {
   const [text, setText] = useState(() => readDraft(draftKey))
   const [cwd, setCwd] = useState(initialCwd ?? '')
   const [modeOpen, setModeOpen] = useState(false)
@@ -173,7 +173,8 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
               onChange={setCwd}
               open={workspaceOpen}
               onOpenChange={setWorkspaceOpen}
-              pickDirectory={pickDirectory}
+              directoryFlowOccupant={directoryFlowOccupant}
+              useDirectoryFlow={useDirectoryFlow}
               addWorkspace={addWorkspace}
               providerId={provider?.id}
               disabled={blocked}

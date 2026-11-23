@@ -1,10 +1,11 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button, HoverCard, IconChevronRightOutlineMedium, IconCloseOutlineMedium, IconEllipsisOutlineMedium, IconEyeOffOutlineMedium, IconEyeOutlineMedium,
   IconFolderCloseRegular, IconNewChatOutlineRegular, IconProjectAddOutlineRegular, IconRefreshOutlineMedium, IconSearchOutlineMedium, IconSlidersTwoOutlineMedium,
   MarqueeText, Menu, Modal, StateDot, Tooltip, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
+import { DirectoryFlow } from './DirectoryFlow.jsx'
 import { SourceIcon } from './SourceIcon.jsx'
 import { SourceHeaderSelect } from './SourceHeaderSelect.jsx'
 import { basename, createdLabel, timeLabel } from './labels.js'
@@ -170,7 +171,7 @@ function Group({ group, expanded, visible, t, onToggle, onMore, onLess, onNew, o
  */
 export function SessionList(props) {
   const { wide, expandSidebar, useSectionScroller, t } = props
-  const { useAgentView, useAgentProviders, useAgentSessions, useAgentTranscript, open, setSource, setQuery, toggleGroup, setGroupBy, setShowHidden, refresh, rename, hide, addWorkspace, removeWorkspace, pickDirectory } = props
+  const { useAgentView, useAgentProviders, useAgentSessions, useAgentTranscript, useSidebarDirectoryFlow, open, setSource, setQuery, toggleGroup, setGroupBy, setShowHidden, refresh, rename, hide, addWorkspace, removeWorkspace, directoryFlowOccupant } = props
   const view = useAgentView(s => s)
   const source = view.source
   const providers = useAgentProviders(s => s)
@@ -187,8 +188,13 @@ export function SessionList(props) {
   const renameComposing = useRef(false)
   const [visible, setVisible] = useState({})
   const [notice, setNotice] = useState(null)
-  const [pickBusy, setPickBusy] = useState(false)
-  const picking = useRef(false)
+  const [flowOpen, setFlowOpen] = useState(false)
+  const [adopting, setAdopting] = useState(false)
+  const flowAvailable = useSidebarDirectoryFlow(occupied => occupied)
+  const pickBusy = flowOpen || adopting
+  useEffect(() => {
+    if (flowOpen && !flowAvailable) setFlowOpen(false)
+  }, [flowOpen, flowAvailable])
   const menuAnchorRef = useRef(null)
   const searchInput = useRef(null)
   const now = Date.now()
@@ -242,22 +248,29 @@ export function SessionList(props) {
     { id: 'refresh', label: t('view.refresh'), icon: <IconRefreshOutlineMedium size={14} /> },
   ]
 
-  const pickWorkspace = async () => {
-    if (picking.current) return
-    picking.current = true
-    setPickBusy(true)
+  const pickWorkspace = () => {
+    if (pickBusy || !flowAvailable) return
     setNotice(null)
-    try {
-      const path = await pickDirectory()
-      if (typeof path !== 'string' || path === '') return
-      const answer = await addWorkspace(source, path)
-      if (!answer.ok) setNotice(t('error.workspace', { error: answer.error }))
-    } catch (error) {
-      setNotice(t('error.workspace', { error: error instanceof Error ? error.message : String(error) }))
-    } finally {
-      picking.current = false
-      setPickBusy(false)
-    }
+    setFlowOpen(true)
+  }
+  const flowOwner = {
+    open: flowOpen,
+    busy: adopting,
+    onPicked: path => {
+      setAdopting(true)
+      void addWorkspace(source, path).then(answer => {
+        setFlowOpen(false)
+        if (!answer.ok) setNotice(t('error.workspace', { error: answer.error }))
+      }).catch(error => {
+        setFlowOpen(false)
+        setNotice(t('error.workspace', { error: error instanceof Error ? error.message : String(error) }))
+      }).finally(() => setAdopting(false))
+    },
+    onCancel: () => setFlowOpen(false),
+    onError: message => {
+      setFlowOpen(false)
+      setNotice(t('error.workspace', { error: message }))
+    },
   }
 
   const closeRename = () => {
@@ -356,13 +369,16 @@ export function SessionList(props) {
                 </Tooltip>
               )}
             />
-            <Tooltip label={t('workspace.add')} delayMs={400} side="bottom">
-              <button type="button" className={css.iconButton} aria-label={t('workspace.add')} aria-busy={pickBusy} disabled={pickBusy} onClick={() => { void pickWorkspace() }}>
-                <IconProjectAddOutlineRegular size={16} />
-              </button>
-            </Tooltip>
+            {flowAvailable && (
+              <Tooltip label={t('workspace.add')} delayMs={400} side="bottom">
+                <button type="button" className={css.iconButton} aria-label={t('workspace.add')} aria-busy={pickBusy} disabled={pickBusy} onClick={pickWorkspace}>
+                  <IconProjectAddOutlineRegular size={16} />
+                </button>
+              </Tooltip>
+            )}
           </div>
         )}
+        <DirectoryFlow occupant={directoryFlowOccupant()} {...flowOwner} />
       </div>
       <div className={css.listArea} ref={bindScrollerRef}>
         <div className={css.treeBody} role="tree" aria-label={t(`section.${source}`)}>

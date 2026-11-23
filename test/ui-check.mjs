@@ -14,6 +14,8 @@ const url = log.match(/http:\/\/127\.0\.0\.1:\d+\/\?token=\S+/)?.[0]
 if (url === undefined) throw new Error('no startup URL in tmp/web.log')
 const executablePath = join(homedir(), 'Library/Caches/ms-playwright/chromium-1248/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing')
 const skipTurns = process.env.SKIP_TURNS === '1'
+// Boot the test server with SSH_CONNECTION set: the directory picker then stays
+// in-browser instead of opening an OS chooser on the operator's desktop.
 
 const browser = await chromium.launch({ headless: true, executablePath })
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
@@ -39,6 +41,7 @@ const step = async (name, fn) => {
   } catch (error) {
     await shot(`fail-${name}`)
     console.log('FAIL', name, error.message.split('\n')[0])
+    if (errors.length > 0) console.log(errors.slice(0, 8).join('\n'))
     throw error
   }
 }
@@ -261,13 +264,16 @@ await step('workspace-pin', async () => {
 await step('workspace-pick-guard', async () => {
   const add = page.locator('[data-slot="sidebar.workspaces"] button[aria-label="新建工作区"], [data-slot="sidebar.workspaces"] button[aria-label="New workspace"]')
   await add.click()
-  await page.waitForTimeout(500)
+  await page.locator('[role="dialog"]').waitFor({ timeout: 5000 })
   const busy = await add.getAttribute('aria-busy')
   const disabled = await add.isDisabled()
   if (busy !== 'true' || !disabled) throw new Error(`picker button not guarded while a pick is in flight (busy=${busy}, disabled=${disabled})`)
   await page.evaluate(() => { const b = document.querySelector('[data-slot="sidebar.workspaces"] button[aria-label="新建工作区"], [data-slot="sidebar.workspaces"] button[aria-label="New workspace"]'); b.click(); b.click() })
   await page.waitForTimeout(400)
-  if (await page.locator('[role="dialog"]').count() > 1) throw new Error('more than one picker dialog opened')
+  if (await page.locator('[role="dialog"]').count() !== 1) throw new Error('more than one picker dialog opened')
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 0, null, { timeout: 5000 })
+  if (await add.getAttribute('aria-busy') !== 'false') throw new Error('picker button stayed busy after the flow was dismissed')
 })
 
 if (!skipTurns) await step('new-session-turn', async () => {
@@ -650,6 +656,10 @@ if (!skipTurns) await step('subagent-chips', async () => {
 await step('switch-codex', async () => {
   await pickWorkspace('Codex 工作区|Codex workspace')
   await page.waitForTimeout(2500)
+  await page.locator('[data-row-key^="agent:codex:"]').first().click()
+  await page.locator('[class*="dag-transcript"]').waitFor({ timeout: 30_000 })
+  await page.locator('[data-usage]').filter({ hasText: /轮|turns/ }).waitFor({ timeout: 15_000 })
+  if (await page.locator('[data-usage] svg').count() === 0) throw new Error('codex context meter missing for a disk-read thread')
   await shot('ui-07-codex')
 })
 
@@ -672,6 +682,8 @@ if (!skipTurns) await step('codex-steer', async () => {
   await page.waitForFunction(() => document.querySelector('[class*="dag-statusLive"]') === null, { timeout: 60_000 })
   await page.waitForTimeout(9000)
   if (await page.locator('[class*="dag-blocked"]').count() !== 0) throw new Error('own Codex thread flagged as open elsewhere after the turn')
+  await page.locator('[data-usage]').filter({ hasText: /轮|turns/ }).waitFor({ timeout: 15_000 })
+  if (await page.locator('[data-usage] svg').count() === 0) throw new Error('codex context meter missing after a live turn')
   await shot('ui-07b-codex-steered')
 })
 

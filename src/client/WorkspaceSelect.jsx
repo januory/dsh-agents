@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, IconChevronDownOutlineRegular, IconFolderCloseRegular, IconFolderOpenRegular, IconPlusOutlineRegular, Menu, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
+import { DirectoryFlow } from './DirectoryFlow.jsx'
 import { basename } from './labels.js'
 import css from './WorkspaceSelect.module.css'
 
@@ -25,39 +26,54 @@ function suffixes(rows) {
 /**
  * New-session workspace chip and picker, mirroring dsh's: a searchable list
  * of directories with the current one checked, a pinned "add workspace"
- * entry that opens the directory flow, one pick at a time, errors in a dialog
- * with a retry. With no directories listed the chip opens the flow directly.
+ * entry that opens the composed directory flow (native chooser or browse
+ * dialog), one pick at a time, errors in a dialog with a retry. With no
+ * directories listed the chip opens the flow directly; with no flow composed
+ * the add entry is absent.
  */
-export function WorkspaceSelect({ t, workspaces, value, onChange, open, onOpenChange, pickDirectory, addWorkspace, providerId, disabled }) {
+export function WorkspaceSelect({ t, workspaces, value, onChange, open, onOpenChange, directoryFlowOccupant, useDirectoryFlow, addWorkspace, providerId, disabled }) {
   const [query, setQuery] = useState('')
   const [error, setError] = useState(null)
-  const [picking, setPicking] = useState(false)
-  const pickingRef = useRef(false)
+  const [flowOpen, setFlowOpen] = useState(false)
+  const [adopting, setAdopting] = useState(false)
   const buttonRef = useRef(null)
   const rows = useMemo(() => workspaces.map(workspace => ({ ...workspace, label: basename(workspace.path) })), [workspaces])
   const apart = useMemo(() => suffixes(rows), [rows])
   const q = query.trim().toLowerCase()
   const matching = q === '' ? rows : rows.filter(row => row.label.toLowerCase().includes(q) || row.path.toLowerCase().includes(q))
   const label = value === '' ? undefined : basename(value)
+  const flowAvailable = useDirectoryFlow(occupied => occupied)
+  const flowBusy = flowOpen || adopting
+  // An occupant that unloads mid-interaction leaves nobody to cancel.
+  useEffect(() => {
+    if (flowOpen && !flowAvailable) setFlowOpen(false)
+  }, [flowOpen, flowAvailable])
 
-  const startAdd = async () => {
-    if (pickingRef.current) return
-    pickingRef.current = true
-    setPicking(true)
+  const openFlow = () => {
+    if (flowBusy || !flowAvailable) return
     onOpenChange(false)
     setError(null)
-    try {
-      const path = await pickDirectory()
-      if (typeof path !== 'string' || path === '') return
-      const answer = await addWorkspace(providerId, path)
-      if (answer.ok) onChange(path)
-      else setError(answer.error)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      pickingRef.current = false
-      setPicking(false)
-    }
+    setFlowOpen(true)
+  }
+  const flowOwner = {
+    open: flowOpen,
+    busy: adopting,
+    onPicked: path => {
+      setAdopting(true)
+      void addWorkspace(providerId, path).then(answer => {
+        setFlowOpen(false)
+        if (answer.ok) onChange(path)
+        else setError(answer.error)
+      }).catch(reason => {
+        setFlowOpen(false)
+        setError(reason instanceof Error ? reason.message : String(reason))
+      }).finally(() => setAdopting(false))
+    },
+    onCancel: () => setFlowOpen(false),
+    onError: message => {
+      setFlowOpen(false)
+      setError(message)
+    },
   }
 
   const items = matching.map(row => {
@@ -71,10 +87,10 @@ export function WorkspaceSelect({ t, workspaces, value, onChange, open, onOpenCh
         </span>
       ),
       icon: <IconFolderCloseRegular size={16} />,
-      disabled: picking,
+      disabled: flowBusy,
     }
   })
-  const addEntries = [{ id: ADD, label: t('workspace.addEntry'), icon: <IconPlusOutlineRegular size={16} />, disabled: picking }]
+  const addEntries = flowAvailable ? [{ id: ADD, label: t('workspace.addEntry'), icon: <IconPlusOutlineRegular size={16} />, disabled: flowBusy }] : []
 
   return (
     <>
@@ -85,11 +101,11 @@ export function WorkspaceSelect({ t, workspaces, value, onChange, open, onOpenCh
         aria-label={t('workspace.choose')}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-busy={picking}
+        aria-busy={flowBusy}
         disabled={disabled}
         title={value === '' ? undefined : value}
         onClick={() => {
-          if (rows.length === 0) void startAdd()
+          if (rows.length === 0) openFlow()
           else onOpenChange(!open)
         }}
       >
@@ -108,7 +124,7 @@ export function WorkspaceSelect({ t, workspaces, value, onChange, open, onOpenCh
         selectedId={value === '' ? undefined : value}
         onSelect={id => {
           if (id === ADD) {
-            void startAdd()
+            openFlow()
             return
           }
           onOpenChange(false)
@@ -123,6 +139,7 @@ export function WorkspaceSelect({ t, workspaces, value, onChange, open, onOpenCh
         portal
         listClassName={css.menu}
       />
+      <DirectoryFlow occupant={directoryFlowOccupant()} {...flowOwner} />
       <Modal
         open={error !== null}
         onClose={() => setError(null)}
@@ -131,7 +148,7 @@ export function WorkspaceSelect({ t, workspaces, value, onChange, open, onOpenCh
         footer={(
           <>
             <Button variant="outline" onClick={() => setError(null)}>{t('notice.dismiss')}</Button>
-            <Button variant="primary" onClick={() => { void startAdd() }}>{t('workspace.retry')}</Button>
+            <Button variant="primary" disabled={!flowAvailable} onClick={openFlow}>{t('workspace.retry')}</Button>
           </>
         )}
       >
