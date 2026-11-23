@@ -38,6 +38,7 @@ export function apply(ctx) {
     agentSettings: controller.settings,
     agentModels: controller.models,
     agentChrome: controller.chrome,
+    agentSidebar: controller.sidebar,
     pickerDirectoryFlow: flowSource('workspace.picker.directoryFlow'),
     sidebarDirectoryFlow: flowSource('sidebar.workspaces.directoryFlow'),
   }
@@ -71,6 +72,7 @@ export function apply(ctx) {
     compact: (provider, sessionId) => controller.compact(provider, sessionId),
     goal: (provider, sessionId, op, objective) => controller.goal(provider, sessionId, op, objective),
     clearTasks: () => controller.clearSettledTasks(),
+    sidebar: controller.sidebar.actions,
     saveSettings: providers => controller.saveSettings(providers),
     // dsh's picker packages own the flow holes; rendering their occupant with
     // our owner conversation keeps both backends dsh's without redeclaring a

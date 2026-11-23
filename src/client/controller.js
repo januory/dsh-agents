@@ -1,5 +1,6 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { unwrap } from '../remote.js'
+import { createSidebarStore } from './sidebarStore.js'
 
 const TURN_POLL_MS = 250
 const APPROVAL_POLL_MS = 600
@@ -58,6 +59,7 @@ export class AgentCliController {
       usage: null,
     })
     this.settings = createSnapshotStore({ providers: {}, loaded: false, error: null })
+    this.sidebar = createSidebarStore()
     this.sourceChanged = () => {}
     this.pollTimer = undefined
     this.listTimer = undefined

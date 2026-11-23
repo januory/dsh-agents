@@ -1,17 +1,28 @@
+/* dsh's frame: the main column plus a right sidebar track that animates
+   open/closed and spans the full height beside the header. Collapsed the track
+   is zero, so the layout is the bare column. */
 .page {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--dag-sidebar-track, 0px);
   height: 100%;
   min-height: 0;
+  overflow: clip;
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
-  /* dsh's adaptive width axis: transcript column clamp(680, 64% of the column,
-     880), composer card 32px wider. A docked panel shifts the column into the
-     start gutter instead of narrowing it. */
-  container-type: inline-size;
-  --dag-content-width: clamp(680px, calc(100cqw * 0.64), 880px);
-  --dag-composer-card-max: calc(var(--dag-content-width) + 32px);
-  --dag-composer-side-clearance: 16px;
+  transition: grid-template-columns var(--ds-transition-duration-slow, 0.3s) var(--ds-ease-in-out, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page {
+    transition: none;
+  }
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 .frame {
@@ -20,6 +31,29 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* dsh's adaptive width axis lives on the conversation column so an open sidebar
+   recenters the transcript/composer into the room left: clamp(680, 64%, 880),
+   composer card 32px wider. */
+.conversation {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  container-type: inline-size;
+  --dag-content-width: clamp(680px, calc(100cqw * 0.64), 880px);
+  --dag-composer-card-max: calc(var(--dag-content-width) + 32px);
+  --dag-composer-side-clearance: 16px;
+}
+
+.rightbar {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
 }
 
 /* dsh's floating session panel: a menu-tier card at the top of the chat frame's
@@ -55,22 +89,23 @@
   align-items: center;
   gap: 10px;
   height: 52px;
-  padding: 0 20px;
+  padding: 0 28px 0 20px;
   box-sizing: border-box;
   border-bottom: 0.5px solid var(--dsw-alias-border-l1);
 }
 
-.back {
-  display: inline-flex;
+/* dsh's header corner seat: past the utilities' edge, into the header's right
+   padding; collapses entirely while the sidebar is expanded. */
+.headerCorner {
+  display: flex;
+  flex: none;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: var(--dsw-radius-sm);
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  cursor: pointer;
+  margin-left: auto;
+  margin-right: -16px;
+}
+
+.headerCorner:empty {
+  display: none;
 }
 
 .mark {
@@ -264,13 +299,3 @@
   pointer-events: none;
 }
 
-@media (hover: hover) {
-  .back:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
-}
-
-.back:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: -2px;
-}

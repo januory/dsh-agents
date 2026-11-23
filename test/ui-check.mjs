@@ -222,6 +222,51 @@ const ensureLoaded = async () => {
     await page.waitForTimeout(400)
   }
 }
+const ensureConversation = async () => {
+  await page.goto(url, { waitUntil: 'domcontentloaded' })
+  await switcher().waitFor({ timeout: 60_000 })
+  await page.waitForTimeout(1200)
+  for (let i = 0; i < 3; i++) {
+    if (await page.locator('[role="dialog"]').count() === 0) break
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+  }
+  await pickWorkspace('Claude 工作区|Claude workspace')
+  await page.locator('[data-row-key^="agent:claude:"]').first().waitFor({ timeout: 30_000 })
+  await page.locator('[data-row-key^="agent:claude:"]').first().click()
+  await page.locator('[class*="dag-transcript"]').waitFor({ timeout: 30_000 })
+  await page.waitForTimeout(800)
+}
+const ourSidebar = () => page.locator('[data-dag-sidebar-right]')
+const sidebarOpen = () => page.locator('[data-dag-sidebar-right][data-sidebar-right-open]')
+const expandSidebar = async () => {
+  if (await sidebarOpen().count() === 0) {
+    await page.locator('[data-dag-sidebar-expand]').click()
+    await sidebarOpen().waitFor({ timeout: 5000 })
+  }
+  if (await page.locator('[data-dag-sidebar-right][data-sidebar-right-panel="fullscreen"]').count() > 0) {
+    await ourSidebar().locator('[data-sidebar-right-mode]').click()
+    await page.locator('[data-dag-sidebar-right][data-sidebar-right-panel="push"]').waitFor({ timeout: 5000 })
+  }
+  await page.waitForTimeout(350)
+}
+const collapseSidebar = async () => {
+  if (await sidebarOpen().count() > 0) {
+    await ourSidebar().locator('[data-sidebar-right-toggle]').click()
+    await page.waitForFunction(() => document.querySelector('[data-dag-sidebar-right][data-sidebar-right-open]') === null, null, { timeout: 5000 })
+  }
+}
+const sidebarGeo = () => page.evaluate(() => {
+  const panel = document.querySelector('[data-dag-sidebar-right]')
+  const frame = panel?.closest('[class*="dag-page"]')
+  if (panel === null || frame == null) return null
+  const conv = frame.querySelector('[class*="dag-conversation"]')
+  const p = panel.getBoundingClientRect()
+  const f = frame.getBoundingClientRect()
+  const c = conv?.getBoundingClientRect()
+  return { pw: Math.round(p.width), pr: Math.round(p.right), fr: Math.round(f.right), fw: Math.round(f.width), cw: c ? Math.round(c.width) : null, pt: Math.round(p.top), ph: Math.round(p.height), fh: Math.round(f.height), mode: panel.getAttribute('data-sidebar-right-panel') }
+})
+
 const palette = page.locator('[role="listbox"]')
 const paletteRows = palette.locator('[role="option"]')
 const openPalette = async () => {
@@ -914,6 +959,94 @@ await step('settings', async () => {
   await page.getByText(/^(Agent CLI sessions|Agent CLI 会话)$/).first().click()
   await page.waitForTimeout(800)
   await shot('ui-09-settings')
+})
+
+await step('sidebar-expand', async () => {
+  await ensureConversation()
+  await collapseSidebar()
+  await page.locator('[data-dag-sidebar-expand]').waitFor({ timeout: 5000 })
+  await page.locator('[data-dag-sidebar-expand]').click()
+  await sidebarOpen().waitFor({ timeout: 5000 })
+  await page.waitForTimeout(400)
+  const geo = await sidebarGeo()
+  const expected = Math.max(300, Math.round(1440 * 0.45))
+  if (geo === null || Math.abs(geo.pw - expected) > 2) throw new Error(`sidebar width not the 45% default: ${JSON.stringify(geo)} expected ${expected}`)
+  if (Math.abs(geo.pr - geo.fr) > 2) throw new Error(`sidebar not anchored to the frame's right edge: ${JSON.stringify(geo)}`)
+  if (geo.cw === null || Math.abs(geo.cw - (geo.fw - expected)) > 3) throw new Error(`conversation did not make room: ${JSON.stringify(geo)}`)
+  if (geo.pt > 1 || Math.abs(geo.ph - geo.fh) > 2) throw new Error(`sidebar does not fill the frame top to bottom: ${JSON.stringify(geo)}`)
+  await ourSidebar().locator('[data-sidebar-guide]').waitFor({ timeout: 5000 })
+  if (await ourSidebar().locator('[data-sidebar-right-tab]').count() < 1) throw new Error('no guide tab in the strip')
+  await ourSidebar().locator('[data-sidebar-right-toggle]').waitFor({ timeout: 5000 })
+  await ourSidebar().locator('[data-sidebar-right-mode]').waitFor({ timeout: 5000 })
+  await shot('ui-10-sidebar-expand')
+})
+
+await step('sidebar-collapse', async () => {
+  await ensureConversation()
+  await expandSidebar()
+  await ourSidebar().locator('[data-sidebar-right-toggle]').click()
+  await page.waitForFunction(() => document.querySelector('[data-dag-sidebar-right][data-sidebar-right-open]') === null, null, { timeout: 5000 })
+  await page.locator('[data-dag-sidebar-expand]').waitFor({ timeout: 5000 })
+  await shot('ui-10b-sidebar-collapsed')
+  await page.keyboard.press('Control+Shift+B')
+  await sidebarOpen().waitFor({ timeout: 5000 })
+  await page.keyboard.press('Control+Shift+B')
+  await page.waitForFunction(() => document.querySelector('[data-dag-sidebar-right][data-sidebar-right-open]') === null, null, { timeout: 5000 })
+})
+
+await step('sidebar-fullscreen', async () => {
+  await ensureConversation()
+  await expandSidebar()
+  await ourSidebar().locator('[data-sidebar-right-mode]').click()
+  await page.locator('[data-dag-sidebar-right][data-sidebar-right-panel="fullscreen"]').waitFor({ timeout: 5000 })
+  await page.waitForTimeout(350)
+  const geo = await sidebarGeo()
+  if (geo === null || Math.abs(geo.pw - 1440) > 2) throw new Error(`fullscreen panel does not cover the viewport: ${JSON.stringify(geo)}`)
+  await shot('ui-10c-sidebar-fullscreen')
+  await ourSidebar().locator('[data-sidebar-right-mode]').click()
+  await page.locator('[data-dag-sidebar-right][data-sidebar-right-panel="push"]').waitFor({ timeout: 5000 })
+})
+
+await step('sidebar-resize', async () => {
+  await ensureConversation()
+  await expandSidebar()
+  const w0 = (await sidebarGeo()).pw
+  const handle = ourSidebar().locator('[role="separator"]')
+  const hb = await handle.boundingBox()
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(hb.x + hb.width / 2 - 120, hb.y + hb.height / 2, { steps: 8 })
+  await page.mouse.up()
+  await page.waitForTimeout(200)
+  const w1 = (await sidebarGeo()).pw
+  if (Math.abs((w1 - w0) - 120) > 6) throw new Error(`drag did not widen by 120: ${w0} -> ${w1}`)
+  await handle.focus()
+  const w2 = (await sidebarGeo()).pw
+  await page.keyboard.press('ArrowLeft')
+  await page.waitForTimeout(150)
+  const w3 = (await sidebarGeo()).pw
+  if (w3 - w2 !== 20) throw new Error(`ArrowLeft did not step 20: ${w2} -> ${w3}`)
+  const max = Math.round(1440 * 0.7)
+  if (w3 > max) throw new Error(`width exceeded the 70% cap: ${w3} > ${max}`)
+  await shot('ui-10d-sidebar-resize')
+})
+
+await step('sidebar-persist', async () => {
+  await ensureConversation()
+  await expandSidebar()
+  const handle = ourSidebar().locator('[role="separator"]')
+  await handle.focus()
+  await page.keyboard.press('ArrowLeft')
+  await page.waitForTimeout(150)
+  const w = (await sidebarGeo()).pw
+  const stored = await page.evaluate(() => localStorage.getItem('dsh.agents.sidebar.v1'))
+  if (stored === null || !stored.includes('"expanded":true')) throw new Error(`sidebar state not persisted: ${stored}`)
+  await ensureConversation()
+  await sidebarOpen().waitFor({ timeout: 5000 })
+  await page.waitForTimeout(350)
+  const w2 = (await sidebarGeo()).pw
+  if (w2 !== w) throw new Error(`width not restored per session: ${w} -> ${w2}`)
+  await shot('ui-10e-sidebar-persist')
 })
 
 console.log('console errors/warnings:', errors.length)

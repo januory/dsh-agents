@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { IconChevronLeftOutlineMedium, IconFlatListOutlineRegular, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconFlatListOutlineRegular, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
 import { SourceIcon } from './SourceIcon.jsx'
 import { Composer } from './Composer.jsx'
 import { Transcript, TurnStatus } from './Transcript.jsx'
 import { TasksPanel } from './Tasks.jsx'
+import { RightSidebar } from './RightSidebar.jsx'
+import { SidebarExpandButton } from './SidebarExpandButton.jsx'
 import { isLive, workspaceOptions } from './controller.js'
 import css from './ConversationPage.module.css'
 
@@ -30,7 +32,7 @@ function useStickToBottom(dep) {
  * composer below. It is a root main panel, so it carries no dsh session.
  */
 export function ConversationPage(props) {
-  const { t, useAgentView, useAgentTranscript, useAgentProviders, useAgentSessions, useAgentSettings, useAgentModels, usePickerDirectoryFlow, send, cancel, answer, answerQuestion, loadTaskOutput, clearTasks, stopTask, showEarlier, setSource, setLaunch, addWorkspace, directoryFlowOccupant, compact, goal } = props
+  const { t, useAgentView, useAgentTranscript, useAgentProviders, useAgentSessions, useAgentSettings, useAgentModels, useAgentSidebar, usePickerDirectoryFlow, send, cancel, answer, answerQuestion, loadTaskOutput, clearTasks, stopTask, showEarlier, setSource, setLaunch, addWorkspace, directoryFlowOccupant, compact, goal, sidebar } = props
   const source = useAgentView(s => s.source)
   const transcript = useAgentTranscript(s => s)
   const providers = useAgentProviders(s => s.list)
@@ -48,7 +50,7 @@ export function ConversationPage(props) {
   const last = transcript.events[transcript.events.length - 1]
   const scrollRef = useStickToBottom(`${transcript.key}:${transcript.events.length}:${last?.text?.length ?? 0}:${last?.output?.length ?? 0}`)
   const [overlay, setOverlay] = useState(null)
-  const frameRef = useRef(null)
+  const conversationRef = useRef(null)
   const seatRef = useRef(null)
   const panelRef = useRef(null)
   const toggleRef = useRef(null)
@@ -58,24 +60,38 @@ export function ConversationPage(props) {
   const sessionKey = `${source}:${session?.id ?? 'new'}`
   const panelShown = tasks.length > 0 && overlay === sessionKey
   const togglePanel = () => setOverlay(current => current === sessionKey ? null : sessionKey)
+  const sidebarSurface = useAgentSidebar(s => s.bySession[sessionKey])
+  const sidebarExpanded = sidebarSurface?.expanded ?? false
+  const sidebarWidth = sidebarSurface?.width ?? 0
 
   useEffect(() => {
-    const frame = frameRef.current
+    const conversation = conversationRef.current
     const seat = seatRef.current
-    if (frame === null || seat === null) return
+    if (conversation === null || seat === null) return
     const measure = () => {
-      frame.style.setProperty('--dag-composer-height', `${seat.getBoundingClientRect().height}px`)
+      conversation.style.setProperty('--dag-composer-height', `${seat.getBoundingClientRect().height}px`)
       const toggle = toggleRef.current
       if (toggle === null) return
-      const left = toggle.getBoundingClientRect().left - frame.getBoundingClientRect().left
-      frame.style.setProperty('--dag-panel-left', `${Math.max(8, Math.min(left, frame.clientWidth - 368))}px`)
+      const left = toggle.getBoundingClientRect().left - conversation.getBoundingClientRect().left
+      conversation.style.setProperty('--dag-panel-left', `${Math.max(8, Math.min(left, conversation.clientWidth - 368))}px`)
     }
     measure()
     const observer = new ResizeObserver(measure)
-    observer.observe(frame)
+    observer.observe(conversation)
     observer.observe(seat)
     return () => observer.disconnect()
   }, [blank, source, overlay, transcript.key])
+
+  useEffect(() => {
+    const onKey = event => {
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.key === 'B' || event.key === 'b')) {
+        event.preventDefault()
+        sidebar.toggleExpanded(sessionKey, window.innerWidth)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [sessionKey, sidebar])
 
   useEffect(() => {
     if (overlay === null) return
@@ -143,36 +159,10 @@ export function ConversationPage(props) {
       onSend={request => send(source, { sessionId: session?.id, ...request })}
     />
   )
-  if (blank) {
-    return (
-      <div className={css.page}>
-        <header className={css.header}>
-          <Tooltip label={t('page.back')} side="bottom" delayMs={400}>
-            <button type="button" className={css.back} aria-label={t('page.back')} onClick={() => setSource('dsh')}>
-              <IconChevronLeftOutlineMedium size={14} />
-            </button>
-          </Tooltip>
-          <SourceIcon source={source} size={16} className={css.mark} />
-          <div className={css.heading}><div className={css.title} title={title}>{title}</div></div>
-        </header>
-        <div className={css.body}>
-          <div className={css.hero}>
-            <SourceIcon source={source} size={28} />
-            <div className={css.heroTitle}>{t('page.new', { name })}</div>
-            <div className={css.heroComposer}>{composer}</div>
-          </div>
-        </div>
-      </div>
-    )
-  }
   return (
-    <div className={css.page}>
+    <div className={css.page} style={{ '--dag-sidebar-track': sidebarExpanded ? `${sidebarWidth}px` : '0px' }}>
+      <div className={css.main}>
       <header className={css.header}>
-        <Tooltip label={t('page.back')} side="bottom" delayMs={400}>
-          <button type="button" className={css.back} aria-label={t('page.back')} onClick={() => setSource('dsh')}>
-            <IconChevronLeftOutlineMedium size={14} />
-          </button>
-        </Tooltip>
         <SourceIcon source={source} size={16} className={css.mark} />
         <div className={css.heading}>
           <div className={css.title} title={title}>{title}</div>
@@ -197,37 +187,56 @@ export function ConversationPage(props) {
             </button>
           </Tooltip>
         )}
+        <div className={css.headerCorner}>
+          <SidebarExpandButton expanded={sidebarExpanded} onExpand={() => sidebar.setExpanded(sessionKey, true, window.innerWidth)} t={t} />
+        </div>
       </header>
-      <div className={css.frame} ref={frameRef}>
-        <div className={css.body} ref={scrollRef}>
-          <div className={css.view}>
-            {transcript.loading ? <div className={css.center}>{t('page.loading')}</div>
-              : transcript.error !== null && transcript.events.length === 0 ? <div className={cx(css.center, css.error)}>{t('page.error', { error: transcript.error })}</div>
-                : transcript.events.length === 0 ? (
-                  <div className={css.hero}>
-                    <SourceIcon source={source} size={28} />
-                    <div className={css.heroTitle}>{t('row.untitled')}</div>
-                  </div>
-                ) : (
-                  <>
-                    {session?.hasEarlier && <div className={css.truncated}>{t('page.truncated')}</div>}
-                    <Transcript events={transcript.events} limit={transcript.historyLimit} t={t} tasks={transcript.tasks ?? []} onAnswer={answer} onQuestion={answerQuestion} onEarlier={showEarlier} />
-                  </>
-                )}
-            {transcript.turn !== null && transcript.turn.status !== 'done' && (
-              <div className={css.statusRow}><TurnStatus turn={transcript.turn} name={name} source={source} t={t} /></div>
+      <div className={css.frame}>
+        <div className={css.conversation} ref={conversationRef}>
+          <div className={css.body} ref={scrollRef}>
+            {blank ? (
+              <div className={css.hero}>
+                <SourceIcon source={source} size={28} />
+                <div className={css.heroTitle}>{t('page.new', { name })}</div>
+                <div className={css.heroComposer}>{composer}</div>
+              </div>
+            ) : (
+              <>
+                <div className={css.view}>
+                  {transcript.loading ? <div className={css.center}>{t('page.loading')}</div>
+                    : transcript.error !== null && transcript.events.length === 0 ? <div className={cx(css.center, css.error)}>{t('page.error', { error: transcript.error })}</div>
+                      : transcript.events.length === 0 ? (
+                        <div className={css.hero}>
+                          <SourceIcon source={source} size={28} />
+                          <div className={css.heroTitle}>{t('row.untitled')}</div>
+                        </div>
+                      ) : (
+                        <>
+                          {session?.hasEarlier && <div className={css.truncated}>{t('page.truncated')}</div>}
+                          <Transcript events={transcript.events} limit={transcript.historyLimit} t={t} tasks={transcript.tasks ?? []} onAnswer={answer} onQuestion={answerQuestion} onEarlier={showEarlier} />
+                        </>
+                      )}
+                  {transcript.turn !== null && transcript.turn.status !== 'done' && (
+                    <div className={css.statusRow}><TurnStatus turn={transcript.turn} name={name} source={source} t={t} /></div>
+                  )}
+                </div>
+                <div className={css.composerSeat} ref={seatRef}>
+                  {sendError !== undefined && !transcript.loading && <div className={css.sendError} role="alert">{sendError}</div>}
+                  {composer}
+                </div>
+              </>
             )}
           </div>
-          <div className={css.composerSeat} ref={seatRef}>
-            {sendError !== undefined && !transcript.loading && <div className={css.sendError} role="alert">{sendError}</div>}
-            {composer}
-          </div>
+          {panelShown && (
+            <aside className={css.panel} ref={panelRef} aria-label={t('task.title')}>
+              <TasksPanel key={sessionKey} tasks={tasks} t={t} loadOutput={loadTaskOutput} onClear={clearTasks} stopTask={stopTask} />
+            </aside>
+          )}
         </div>
-        {panelShown && (
-          <aside className={css.panel} ref={panelRef} aria-label={t('task.title')}>
-            <TasksPanel key={sessionKey} tasks={tasks} t={t} loadOutput={loadTaskOutput} onClear={clearTasks} stopTask={stopTask} />
-          </aside>
-        )}
+      </div>
+      </div>
+      <div className={css.rightbar}>
+        <RightSidebar sessionKey={sessionKey} useSidebar={useAgentSidebar} actions={sidebar} t={t} />
       </div>
     </div>
   )
