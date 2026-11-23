@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { IconCloseOutlineRegular, IconPanelLeftOutlineRegular, IconPlusOutlineRegular, Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseOutlineRegular, IconPanelLeftOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
-import { SIDEBAR_KEY_STEP, TAB_TYPES } from './sidebar.js'
+import { SIDEBAR_AUTO_FULLSCREEN, SIDEBAR_KEY_STEP, TAB_TYPES, clampWidth } from './sidebar.js'
 import { McpPanel } from './McpPanel.jsx'
 import css from './RightSidebar.module.css'
 
@@ -46,7 +46,6 @@ const TAB_ICONS = { compass: CompassGlyph, mcp: McpGlyph }
 export function RightSidebar({ sessionKey, useSidebar, actions, t, provider, sessionId, cwd, mcp }) {
   const surface = useSidebar(s => s.bySession[sessionKey])
   const [viewport, setViewport] = useState(() => window.innerWidth)
-  const [addOpen, setAddOpen] = useState(false)
   const drag = useRef(null)
   useEffect(() => {
     const onResize = () => setViewport(window.innerWidth)
@@ -54,8 +53,10 @@ export function RightSidebar({ sessionKey, useSidebar, actions, t, provider, ses
     return () => window.removeEventListener('resize', onResize)
   }, [])
   if (surface === undefined) return null
-  const { expanded, mode, width, tabs, activeTab } = surface
-  const fullscreen = mode === 'fullscreen'
+  const { expanded, mode, tabs, activeTab } = surface
+  const width = clampWidth(surface.width, viewport)
+  const autoFullscreen = viewport < SIDEBAR_AUTO_FULLSCREEN
+  const fullscreen = autoFullscreen || mode === 'fullscreen'
   const active = tabs.find(tab => tab.id === activeTab) ?? tabs[0]
 
   const startResize = event => {
@@ -127,20 +128,6 @@ export function RightSidebar({ sessionKey, useSidebar, actions, t, provider, ses
             </div>
             <div className={css.stripFill} />
             <div className={css.stripChrome}>
-              <Menu
-                open={addOpen}
-                onClose={() => setAddOpen(false)}
-                items={TAB_TYPES.map(type => ({ id: type.kind, label: t(type.titleKey), icon: (() => { const Icon = TAB_ICONS[type.icon] ?? CompassGlyph; return <Icon size={14} /> })() }))}
-                align="end"
-                side="bottom"
-                portal
-                onSelect={id => { setAddOpen(false); actions.addTab(sessionKey, id) }}
-                anchor={(
-                  <button type="button" className={css.addTab} aria-label={t('sidebar.addTab')} aria-haspopup="menu" aria-expanded={addOpen} data-sidebar-right-add onClick={() => setAddOpen(v => !v)}>
-                    <IconPlusOutlineRegular size={15} />
-                  </button>
-                )}
-              />
               <Tooltip label={t(fullscreen ? 'sidebar.exitFullscreen' : 'sidebar.toFullscreen')} side="bottom" delayMs={500}>
                 <button type="button" className={css.iconButton} aria-label={t(fullscreen ? 'sidebar.exitFullscreen' : 'sidebar.toFullscreen')} data-sidebar-right-mode={fullscreen ? 'push' : 'fullscreen'} onClick={() => actions.toggleFullscreen(sessionKey)}>
                   {fullscreen ? <ExitFullscreenGlyph /> : <FullscreenGlyph />}

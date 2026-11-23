@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Button, IconChevronLeftOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, Input, StateDot, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconChevronLeftOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, Input, Menu, StateDot, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
 import css from './McpPanel.module.css'
 
@@ -41,6 +41,29 @@ function groupServers(servers) {
     return (ia === -1 ? SCOPE_ORDER.length : ia) - (ib === -1 ? SCOPE_ORDER.length : ib)
   })
   return keys.map(key => ({ key, servers: groups.get(key) }))
+}
+
+function Dropdown({ value, options, onChange, ariaLabel, marker }) {
+  const [open, setOpen] = useState(false)
+  const current = options.find(option => option.value === value)
+  return (
+    <Menu
+      open={open}
+      onClose={() => setOpen(false)}
+      items={options.map(option => ({ id: option.value, label: option.label }))}
+      selectedId={value}
+      align="start"
+      side="bottom"
+      portal
+      onSelect={id => { setOpen(false); onChange(id) }}
+      anchor={(
+        <button type="button" className={css.select} aria-label={ariaLabel} aria-haspopup="menu" aria-expanded={open} data-mcp-select={marker} onClick={() => setOpen(v => !v)}>
+          <span className={css.selectValue}>{current?.label}</span>
+          <IconChevronDownOutlineRegular size={16} className={css.selectChevron} />
+        </button>
+      )}
+    />
+  )
 }
 
 export function McpPanel({ provider, sessionId, cwd, mcp, t }) {
@@ -110,11 +133,8 @@ export function McpPanel({ provider, sessionId, cwd, mcp, t }) {
           </label>
           <div className={css.field}>
             <span className={css.label}>{t('mcp.transport')}</span>
-            <div className={css.segmented} role="group">
-              {['stdio', 'http', 'sse'].map(value => (
-                <button key={value} type="button" className={cx(css.segment, form.transport === value && css.segmentActive)} aria-pressed={form.transport === value} data-mcp-transport={value} onClick={() => field('transport', value)}>{t(`mcp.${value}`)}</button>
-              ))}
-            </div>
+            <Dropdown value={form.transport} onChange={value => field('transport', value)} ariaLabel={t('mcp.transport')} marker="transport"
+              options={['stdio', 'http', 'sse'].map(value => ({ value, label: t(`mcp.${value}`) }))} />
           </div>
           {stdio ? (
             <label className={css.field}>
@@ -128,22 +148,19 @@ export function McpPanel({ provider, sessionId, cwd, mcp, t }) {
             </label>
           )}
           {stdio && (
-            <label className={css.field}>
+            <label className={cx(css.field, css.fieldTop)}>
               <span className={css.label}>{t('mcp.arguments')}</span>
               <textarea className={css.textarea} value={form.arguments} onChange={e => field('arguments', e.target.value)} placeholder={t('mcp.argumentsPlaceholder')} rows={3} data-mcp-field="arguments" />
             </label>
           )}
-          <label className={css.field}>
+          <label className={cx(css.field, css.fieldTop)}>
             <span className={css.label}>{stdio ? t('mcp.env') : t('mcp.headers')}</span>
             <textarea className={css.textarea} value={form.environment} onChange={e => field('environment', e.target.value)} placeholder={t('mcp.envPlaceholder')} rows={3} data-mcp-field="environment" />
           </label>
           <div className={css.field}>
             <span className={css.label}>{t('mcp.scope')}</span>
-            <div className={css.segmented} role="group">
-              {['local', 'user', 'project'].map(value => (
-                <button key={value} type="button" className={cx(css.segment, form.scope === value && css.segmentActive)} aria-pressed={form.scope === value} data-mcp-scope={value} onClick={() => field('scope', value)}>{t(`mcp.group.${value}`)}</button>
-              ))}
-            </div>
+            <Dropdown value={form.scope} onChange={value => field('scope', value)} ariaLabel={t('mcp.scope')} marker="scope"
+              options={['local', 'user', 'project'].map(value => ({ value, label: t(`mcp.group.${value}`) }))} />
           </div>
           {error !== null && <p className={css.error} role="alert" data-mcp-error>{error}</p>}
           <div className={css.formActions}>
@@ -224,12 +241,11 @@ export function McpPanel({ provider, sessionId, cwd, mcp, t }) {
               </section>
             ))}
       </div>
-      <div className={css.listFoot}>
-        {canManage && (
+      {canManage && (
+        <div className={css.listFoot}>
           <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={14} />} onClick={() => { setView('add'); setError(null) }} data-mcp-add>{t('mcp.addServer')}</Button>
-        )}
-        <a className={css.learn} href="https://code.claude.com/docs/en/mcp" target="_blank" rel="noreferrer">{t('mcp.learnMore')}</a>
-      </div>
+        </div>
+      )}
     </div>
   )
 }

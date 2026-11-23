@@ -18,6 +18,20 @@
   }
 }
 
+/* dsh pads a global main panel below the shell's leading seat on a narrow
+   drawer frame, but a conversation owns its header: cancel that pad and clear
+   the seat inline so the title row stays level with the sidebar opener on one
+   line, exactly as dsh's own conversation header does. */
+.page[data-dag-drawer] {
+  --dag-drawer-pad: max(0px, calc(48px - var(--dsh-frame-top-clearance, 0px)));
+  margin-top: calc(-1 * var(--dag-drawer-pad));
+  height: calc(100% + var(--dag-drawer-pad));
+}
+
+.page[data-dag-drawer] .header {
+  padding-left: var(--dsh-frame-leading-clearance, 20px);
+}
+
 .main {
   display: flex;
   flex-direction: column;
@@ -100,7 +114,7 @@
   display: flex;
   flex: none;
   align-items: center;
-  margin-left: auto;
+  margin-left: 8px;
   margin-right: -16px;
 }
 
@@ -113,12 +127,45 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+.titleRow {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  container-type: inline-size;
+}
+
+/* dsh's title cluster: the title and detail chip share one clipping box that
+   shrinks on a narrow row, fading overflowing chips instead of wrapping or
+   pushing the corner off-screen. */
+.titleCluster {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  --title-cluster-fade: 20px;
+  margin: -4px calc(-1 * var(--title-cluster-fade)) -4px -4px;
+  padding: 4px var(--title-cluster-fade) 4px 4px;
+  overflow: clip;
+  mask-image: linear-gradient(to left, transparent calc(0.3 * var(--title-cluster-fade)), #000 var(--title-cluster-fade));
+}
+
+.titleCluster:has(+ .headerCorner:empty) {
+  --title-cluster-fade: 8px;
+}
+
 .heading {
   flex: 0 1 auto;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.liveTag {
+  flex: none;
 }
 
 /* dsh's header detail chip: the background-task count sits right after the title. */
@@ -166,16 +213,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
 }
 
 /* dsh's scroll frame: the transcript and the sticky composer seat share one

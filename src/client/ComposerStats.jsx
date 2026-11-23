@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { IconDatabaseOutlineRegular, IconGaugeOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { tokenCount } from './labels.js'
@@ -12,10 +12,16 @@ function Pill({ stat, icon, label, text, title, titleValue, rows }) {
   const [pos, setPos] = useState(null)
   const rootRef = useRef(null)
   const panelRef = useRef(null)
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return }
+    const rect = rootRef.current?.getBoundingClientRect()
+    const panel = panelRef.current
+    if (rect === undefined || panel == null) return
+    const left = Math.max(12, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 12))
+    setPos({ left, bottom: window.innerHeight - rect.top + 8 })
+  }, [open])
   useEffect(() => {
     if (!open) return
-    const rect = rootRef.current?.getBoundingClientRect()
-    if (rect !== undefined) setPos({ left: rect.left, bottom: window.innerHeight - rect.top + 8 })
     const onDown = event => {
       if (rootRef.current?.contains(event.target) === true || panelRef.current?.contains(event.target) === true) return
       setOpen(false)
@@ -38,8 +44,8 @@ function Pill({ stat, icon, label, text, title, titleValue, rows }) {
           ? <span className={css.pill}>{body}</span>
           : <button type="button" className={css.pill} aria-haspopup="dialog" aria-expanded={open} aria-label={text} onClick={() => setOpen(v => !v)}>{body}</button>}
       </Tooltip>
-      {open && rows !== undefined && pos !== null && createPortal(
-        <div ref={panelRef} className={css.panel} role="dialog" aria-label={title} style={{ left: pos.left, bottom: pos.bottom }}>
+      {open && rows !== undefined && createPortal(
+        <div ref={panelRef} className={css.panel} role="dialog" aria-label={title} style={{ left: pos?.left ?? 0, bottom: pos?.bottom ?? 0, visibility: pos === null ? 'hidden' : undefined }}>
           <div className={css.panelTitle}>{icon}{title}{titleValue !== undefined && <span className={css.panelValue}>{titleValue}</span>}</div>
           <dl className={css.details}>
             {rows.map(([key, value]) => <div key={key} className={css.row}><dt>{key}</dt><dd>{value}</dd></div>)}

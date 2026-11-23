@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { tokenCount } from './labels.js'
@@ -22,10 +22,18 @@ export function UsageMeter({ usage, t }) {
   const percent = usage == null || capacity == null || capacity <= 0 || usage.contextTokens == null
     ? null
     : Math.min(100, Math.round(usage.contextTokens / capacity * 100))
+  // Clamp the panel into the viewport so a right-edge meter on a narrow phone
+  // screen opens leftward instead of running off-screen, as dsh's anchor does.
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return }
+    const rect = rootRef.current?.getBoundingClientRect()
+    const panel = panelRef.current
+    if (rect === undefined || panel == null) return
+    const left = Math.max(12, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 12))
+    setPos({ left, bottom: window.innerHeight - rect.top + 8 })
+  }, [open])
   useEffect(() => {
     if (!open) return
-    const rect = rootRef.current?.getBoundingClientRect()
-    if (rect !== undefined) setPos({ left: rect.left, bottom: window.innerHeight - rect.top + 8 })
     const onDown = event => {
       if (rootRef.current?.contains(event.target) === true || panelRef.current?.contains(event.target) === true) return
       setOpen(false)
@@ -57,8 +65,8 @@ export function UsageMeter({ usage, t }) {
           <span>{reading}</span>
         </button>
       </Tooltip>
-      {open && pos !== null && createPortal(
-        <div ref={panelRef} className={css.panel} role="dialog" aria-label={t('context.used')} style={{ left: pos.left, bottom: pos.bottom }}>
+      {open && createPortal(
+        <div ref={panelRef} className={css.panel} role="dialog" aria-label={t('context.used')} style={{ left: pos?.left ?? 0, bottom: pos?.bottom ?? 0, visibility: pos === null ? 'hidden' : undefined }}>
           <div className={css.header}>
             <span className={css.headline}>{headBefore}</span>
             <span className={css.percent}>{reading}</span>

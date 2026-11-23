@@ -55,6 +55,11 @@ const cardBox = selector => page.evaluate(sel => {
 let dshCard = null
 const switcher = () => page.locator('button[aria-label="切换工作区"], button[aria-label="Switch workspace"]').first()
 const pickWorkspace = async label => {
+  for (let i = 0; i < 3; i++) {
+    if (await page.locator('[role="dialog"]').count() === 0) break
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+  }
   await switcher().click()
   await page.getByText(new RegExp(`^(${label})$`)).first().click()
   await page.waitForTimeout(600)
@@ -1052,14 +1057,100 @@ await step('sidebar-persist', async () => {
 const openMcpTab = async () => {
   await expandSidebar()
   if (await ourSidebar().locator('[data-mcp-view]').count() > 0) return
-  await ourSidebar().locator('[data-sidebar-right-add]').click()
-  await page.locator('[role="menu"] [role="menuitem"], [role="menu"] button').filter({ hasText: 'MCP' }).first().click()
+  const start = ourSidebar().locator('[data-sidebar-right-tab]').filter({ hasText: /开始|Start/ })
+  if (await start.count() > 0) await start.first().click()
+  else await ourSidebar().locator('[data-sidebar-right-tab] button').first().click()
+  await ourSidebar().locator('[data-sidebar-guide-entry="mcp"]').waitFor({ timeout: 5000 })
+  await ourSidebar().locator('[data-sidebar-guide-entry="mcp"]').click()
   await ourSidebar().locator('[data-mcp-view]').waitFor({ timeout: 15_000 })
 }
 const waitMcpList = () => page.waitForFunction(() => {
   const root = document.querySelector('[data-dag-sidebar-right] [data-mcp-view="list"]')
   return root !== null && (root.querySelector('[data-mcp-server]') !== null || root.querySelector('[data-mcp-empty]') !== null)
 }, null, { timeout: 30_000 })
+
+await step('header-mobile', async () => {
+  await ensureConversation()
+  await collapseSidebar()
+  await page.setViewportSize({ width: 375, height: 700 })
+  await page.waitForTimeout(500)
+  const m = await page.evaluate(() => {
+    const h = document.querySelector('[class*="dag-header-"]')
+    const corner = h?.querySelector('[data-dag-sidebar-expand]')
+    const heading = h?.querySelector('[class*="dag-heading-"]')
+    const title = heading?.querySelector('[class*="dag-title-"]')
+    const tag = heading?.querySelector('[data-tone]')
+    const r = h?.getBoundingClientRect()
+    const cr = corner?.getBoundingClientRect()
+    const tr = title?.getBoundingClientRect()
+    const gr = tag?.getBoundingClientRect()
+    const opener = document.querySelector('[data-sidebar-opener]')
+    const or = opener?.getBoundingClientRect()
+    return {
+      hh: r ? Math.round(r.height) : null, htop: r ? Math.round(r.top) : null, sw: h?.scrollWidth ?? 0, cw: h?.clientWidth ?? 0, right: cr ? Math.round(cr.right) : null, vw: window.innerWidth,
+      headingH: heading ? Math.round(heading.getBoundingClientRect().height) : null,
+      tagSameRow: tr && gr ? Math.abs((tr.top + tr.bottom) / 2 - (gr.top + gr.bottom) / 2) <= 2 : true,
+      openerSameRow: tr && or ? Math.abs((tr.top + tr.bottom) / 2 - (or.top + or.bottom) / 2) <= 6 : true,
+    }
+  })
+  await shot('ui-10g-header-mobile')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.waitForTimeout(300)
+  if (m.hh === null || m.hh > 60) throw new Error(`header wrapped on mobile: ${JSON.stringify(m)}`)
+  if (m.htop !== null && m.htop > 2) throw new Error(`header pushed below the shell opener row on mobile: ${JSON.stringify(m)}`)
+  if (m.headingH !== null && m.headingH > 28) throw new Error(`header title spans two rows on mobile: ${JSON.stringify(m)}`)
+  if (!m.tagSameRow) throw new Error(`header status tag not on the title row: ${JSON.stringify(m)}`)
+  if (!m.openerSameRow) throw new Error(`sidebar opener not on the header row on mobile: ${JSON.stringify(m)}`)
+  if (m.sw > m.cw + 1) throw new Error(`header overflows on mobile: ${JSON.stringify(m)}`)
+  if (m.right !== null && m.right > m.vw) throw new Error(`header corner off-screen on mobile: ${JSON.stringify(m)}`)
+})
+
+await step('meter-mobile', async () => {
+  await ensureConversation()
+  await collapseSidebar()
+  await page.setViewportSize({ width: 375, height: 700 })
+  await page.waitForTimeout(400)
+  const trigger = page.locator('[data-usage] button[aria-haspopup="dialog"]').last()
+  await trigger.waitFor({ timeout: 10_000 })
+  await trigger.click()
+  const panel = page.locator('[class*="dag-panel-UsageMeter"]')
+  await panel.waitFor({ timeout: 5000 })
+  const m = await panel.evaluate(el => { const r = el.getBoundingClientRect(); return { left: Math.round(r.left), right: Math.round(r.right), vw: window.innerWidth } })
+  await shot('ui-10h-meter-mobile')
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.waitForTimeout(300)
+  if (m.left < 0 || m.right > m.vw) throw new Error(`context panel off-screen on mobile: ${JSON.stringify(m)}`)
+})
+
+await step('sidebar-codex', async () => {
+  await page.goto(url, { waitUntil: 'domcontentloaded' })
+  await switcher().waitFor({ timeout: 60_000 })
+  await page.waitForTimeout(1000)
+  for (let i = 0; i < 3; i++) {
+    if (await page.locator('[role="dialog"]').count() === 0) break
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+  }
+  await pickWorkspace('Codex 工作区|Codex workspace')
+  await page.locator('[data-row-key^="agent:codex:"]').first().waitFor({ timeout: 30_000 })
+  await page.locator('[data-row-key^="agent:codex:"]').first().click()
+  await page.locator('[class*="dag-transcript"]').waitFor({ timeout: 30_000 })
+  await page.waitForTimeout(600)
+  await expandSidebar()
+  const geo = await sidebarGeo()
+  console.log('  codex sidebar geo:', JSON.stringify(geo))
+  await shot('ui-10i-sidebar-codex')
+  if (geo === null || geo.pt > 1 || Math.abs(geo.ph - geo.fh) > 2) throw new Error(`codex sidebar does not fill the frame top to bottom: ${JSON.stringify(geo)}`)
+  await page.setViewportSize({ width: 375, height: 700 })
+  await page.waitForTimeout(500)
+  const mobile = await sidebarGeo()
+  console.log('  codex sidebar mobile geo:', JSON.stringify(mobile))
+  await shot('ui-10j-sidebar-codex-mobile')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.waitForTimeout(300)
+  if (mobile === null || mobile.mode !== 'fullscreen' || mobile.pw < 373 || mobile.pr > 377) throw new Error(`narrow viewport should present the sidebar fullscreen: ${JSON.stringify(mobile)}`)
+})
 
 await step('sidebar-start-chip', async () => {
   await page.evaluate(() => localStorage.removeItem('dsh.agents.sidebar.v1'))
@@ -1109,7 +1200,13 @@ await step('mcp-add-form', async () => {
   await waitMcpList()
   await ourSidebar().locator('[data-mcp-add]').click()
   await ourSidebar().locator('[data-mcp-view="add"]').waitFor({ timeout: 5000 })
-  for (const sel of ['[data-mcp-field="name"]', '[data-mcp-transport="stdio"]', '[data-mcp-field="command"]', '[data-mcp-scope="local"]', '[data-mcp-submit]']) await ourSidebar().locator(sel).waitFor({ timeout: 5000 })
+  for (const sel of ['[data-mcp-field="name"]', '[data-mcp-select="transport"]', '[data-mcp-field="command"]', '[data-mcp-select="scope"]', '[data-mcp-submit]']) await ourSidebar().locator(sel).waitFor({ timeout: 5000 })
+  await ourSidebar().locator('[data-mcp-select="transport"]').click()
+  await page.locator('[role="menu"] [role="menuitem"], [role="menu"] button').filter({ hasText: 'http' }).first().click()
+  await ourSidebar().locator('[data-mcp-field="url"]').waitFor({ timeout: 5000 })
+  await ourSidebar().locator('[data-mcp-select="transport"]').click()
+  await page.locator('[role="menu"] [role="menuitem"], [role="menu"] button').filter({ hasText: 'stdio' }).first().click()
+  await ourSidebar().locator('[data-mcp-field="command"]').waitFor({ timeout: 5000 })
   await shot('ui-12c-mcp-add')
 })
 

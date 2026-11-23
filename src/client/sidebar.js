@@ -2,6 +2,8 @@ export const SIDEBAR_MIN = 300
 export const SIDEBAR_MAX_RATIO = 0.7
 export const SIDEBAR_DEFAULT_RATIO = 0.45
 export const SIDEBAR_KEY_STEP = 20
+// dsh presents an expanded panel fullscreen below this frame width.
+export const SIDEBAR_AUTO_FULLSCREEN = 768
 
 export const TAB_TYPES = [
   { kind: 'guide', titleKey: 'sidebar.tab.guide', icon: 'compass' },

@@ -8,6 +8,7 @@ import { TasksPanel } from './Tasks.jsx'
 import { RightSidebar } from './RightSidebar.jsx'
 import { SidebarExpandButton } from './SidebarExpandButton.jsx'
 import { isLive, workspaceOptions } from './controller.js'
+import { SIDEBAR_AUTO_FULLSCREEN, clampWidth } from './sidebar.js'
 import css from './ConversationPage.module.css'
 
 function useStickToBottom(dep) {
@@ -63,6 +64,13 @@ export function ConversationPage(props) {
   const sidebarSurface = useAgentSidebar(s => s.bySession[sessionKey])
   const sidebarExpanded = sidebarSurface?.expanded ?? false
   const sidebarWidth = sidebarSurface?.width ?? 0
+  const [viewport, setViewport] = useState(() => window.innerWidth)
+  useEffect(() => {
+    const onResize = () => setViewport(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  const sidebarTrack = sidebarExpanded && viewport >= SIDEBAR_AUTO_FULLSCREEN ? clampWidth(sidebarWidth, viewport) : 0
 
   useEffect(() => {
     const conversation = conversationRef.current
@@ -160,35 +168,35 @@ export function ConversationPage(props) {
     />
   )
   return (
-    <div className={css.page} style={{ '--dag-sidebar-track': sidebarExpanded ? `${sidebarWidth}px` : '0px' }}>
+    <div className={css.page} data-dag-drawer={viewport < SIDEBAR_AUTO_FULLSCREEN || undefined} style={{ '--dag-sidebar-track': `${sidebarTrack}px` }}>
       <div className={css.main}>
       <header className={css.header}>
         <SourceIcon source={source} size={16} className={css.mark} />
-        <div className={css.heading}>
-          <div className={css.title} title={title}>{title}</div>
-          {session?.live !== undefined && (
-            <div className={css.meta}>
-              <Tag tone="warning">{session.live.pid !== undefined ? t('composer.elsewhere', { name, pid: session.live.pid }) : t('row.elsewhere')}</Tag>
+        <div className={css.titleRow}>
+          <div className={css.titleCluster}>
+            <div className={css.heading}>
+              <div className={css.title} title={title}>{title}</div>
+              {session?.live !== undefined && <Tag tone="warning" className={css.liveTag}>{t('row.elsewhere')}</Tag>}
             </div>
-          )}
-        </div>
-        {tasks.length > 0 && (
-          <Tooltip label={t(panelShown ? 'task.hidePanel' : 'task.showPanel')} side="bottom" delayMs={400}>
-            <button type="button" ref={toggleRef} className={css.headerJobs} aria-expanded={panelShown} aria-label={t('task.headerCount', { n: tasks.length })} onClick={togglePanel}>
-              {runningTasks > 0
-                ? (
-                  <svg className={css.jobsSpinner} viewBox="0 0 16 16" width="12" height="12" aria-hidden>
-                    <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="2" />
-                    <path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                )
-                : <IconFlatListOutlineRegular size={12} />}
-              <span>{t('task.headerCount', { n: tasks.length })}</span>
-            </button>
-          </Tooltip>
-        )}
-        <div className={css.headerCorner}>
-          <SidebarExpandButton expanded={sidebarExpanded} onExpand={() => sidebar.setExpanded(sessionKey, true, window.innerWidth)} t={t} />
+            {tasks.length > 0 && (
+              <Tooltip label={t(panelShown ? 'task.hidePanel' : 'task.showPanel')} side="bottom" delayMs={400}>
+                <button type="button" ref={toggleRef} className={css.headerJobs} aria-expanded={panelShown} aria-label={t('task.headerCount', { n: tasks.length })} onClick={togglePanel}>
+                  {runningTasks > 0
+                    ? (
+                      <svg className={css.jobsSpinner} viewBox="0 0 16 16" width="12" height="12" aria-hidden>
+                        <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="2" />
+                        <path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    )
+                    : <IconFlatListOutlineRegular size={12} />}
+                  <span>{t('task.headerCount', { n: tasks.length })}</span>
+                </button>
+              </Tooltip>
+            )}
+          </div>
+          <div className={css.headerCorner}>
+            <SidebarExpandButton expanded={sidebarExpanded} onExpand={() => sidebar.setExpanded(sessionKey, true, window.innerWidth)} t={t} />
+          </div>
         </div>
       </header>
       <div className={css.frame}>
