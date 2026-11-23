@@ -9,15 +9,19 @@ import { TurnManager } from '../src/turns.js'
 
 const fixture = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
 chmodSync(fixture, 0o755)
+const windows = process.platform === 'win32'
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-agents-codex-'))
+  // Windows cannot exec a shebang script; the npm-style .cmd shim is what a real install ships there.
+  const command = windows ? join(dir, 'fake-codex.cmd') : fixture
+  if (windows) writeFileSync(command, `@"${process.execPath}" "${fixture}" %*\r\n`)
   const log = join(dir, 'requests.log')
   writeFileSync(log, '')
   const saved = process.env.FAKE_CODEX_LOG
   process.env.FAKE_CODEX_LOG = log
-  const provider = createCodexProvider({ command: fixture, home: join(dir, 'codex') })
+  const provider = createCodexProvider({ command, home: join(dir, 'codex') })
   const turns = new TurnManager({ retentionMs: 60_000 })
   return {
     dir, provider, turns,
