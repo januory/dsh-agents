@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { capture, expandHome, resolveCommand } from './cli.js'
 import { tailText } from './files.js'
 import { JsonRpcClient } from './jsonrpc.js'
-import { codexItemToEvent, codexThreadSummary } from './codex-format.js'
+import { codexItemToEvent, codexThreadSummary, mergeCodexTasks, tasksFromCodexItems } from './codex-format.js'
 import { messageOf } from '../remote.js'
 import { readUpload } from '../uploads.js'
 
@@ -39,6 +39,7 @@ export function createCodexProvider(config) {
   let starting
   const routers = new Map()
   const threadUsage = new Map()
+  const threadTasks = new Map()
   const processItems = new Map()
   const ownThreads = new Set()
 
@@ -344,7 +345,24 @@ export function createCodexProvider(config) {
       }
       const counted = threadUsage.get(id) ?? diskUsage(id)
       const usage = counted === undefined ? null : { ...counted, turns: entries.filter(item => item.type === 'userMessage').length, steps: entries.filter(item => item.type === 'agentMessage').length }
-      return { session: summary(thread), events, usage }
+      const tasks = mergeCodexTasks(threadTasks.get(id) ?? [], tasksFromCodexItems(entries))
+      threadTasks.set(id, tasks)
+      return { session: summary(thread), events, usage, tasks }
+    },
+
+    async tasks(id) {
+      const rpc = await ensure()
+      const tasks = mergeCodexTasks(threadTasks.get(id) ?? [], tasksFromCodexItems(await readItems(rpc, id)))
+      threadTasks.set(id, tasks)
+      return tasks
+    },
+
+    activeBackground() {
+      const out = []
+      for (const [sessionId, tasks] of threadTasks) {
+        if (tasks.some(task => task.status === 'running')) out.push({ sessionId, status: 'running' })
+      }
+      return out
     },
 
     async startTurn(request, sink) {
@@ -367,6 +385,7 @@ export function createCodexProvider(config) {
       sink.emit({ id: `${turnKey}:user`, type: 'user', ts: Date.now(), text: request.text, ...(request.images?.length ? { images: request.images } : {}) })
 
       const items = new Map()
+      const rawItems = new Map()
       const approvals = new Map()
       const questions = new Map()
       let turnId
@@ -377,6 +396,10 @@ export function createCodexProvider(config) {
         // The turn's own user echo carries the pasted images; the server's
         // userMessage item would duplicate it without them.
         if (item.type === 'userMessage') return
+        if (item.id !== undefined) rawItems.set(item.id, item)
+        if (item.type === 'commandExecution' || item.type === 'collabAgentToolCall' || item.type === 'subAgentActivity') {
+          threadTasks.set(threadId, mergeCodexTasks(threadTasks.get(threadId) ?? [], tasksFromCodexItems([...rawItems.values()])))
+        }
         const event = codexItemToEvent(item, ts, done)
         if (event === undefined) return
         const previous = items.get(event.id)

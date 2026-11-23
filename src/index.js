@@ -146,10 +146,10 @@ export function apply(ctx, config) {
         return failure(error)
       }
     },
-    tasks(providerId, sessionId) {
+    async tasks(providerId, sessionId) {
       try {
         const provider = registry.get(providerId)
-        return { ok: true, tasks: provider.tasks === undefined ? [] : provider.tasks(sessionId) }
+        return { ok: true, tasks: provider.tasks === undefined ? [] : await provider.tasks(sessionId) }
       } catch (error) {
         return failure(error)
       }

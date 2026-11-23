@@ -67,6 +67,8 @@
  * @property {(sessionId: string, objective: string, sink: TurnSink) => Promise<TurnHandle>} [setGoal]
  * @property {(sessionId: string) => Promise<{ goal: object | null }>} [getGoal]
  * @property {(sessionId: string) => Promise<{ cleared: boolean }>} [clearGoal]
+ * @property {(sessionId: string) => object[] | Promise<object[]>} [tasks]
+ * @property {() => { sessionId: string, status: string }[]} [activeBackground]
  * @property {(sessionId: string, cwd: string) => Promise<{ servers: McpServer[] }>} [mcpStatus]
  * @property {(sessionId: string, cwd: string, name: string) => Promise<unknown>} [mcpReconnect]
  * @property {(sessionId: string, cwd: string, name: string, enabled: boolean) => Promise<unknown>} [mcpToggle]

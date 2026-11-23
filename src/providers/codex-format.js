@@ -35,6 +35,78 @@ function toolStatus(status) {
   }
 }
 
+function taskStatus(status) {
+  switch (status) {
+    case 'inProgress': case 'in_progress': case 'running': case 'pendingInit': return 'running'
+    case 'failed': case 'errored': case 'declined': return 'failed'
+    case 'interrupted': case 'shutdown': return 'interrupted'
+    default: return 'completed'
+  }
+}
+
+/**
+ * Background shells and subagents reconstructed from Codex thread items: a
+ * persistent/running commandExecution is a background shell, a collab agent
+ * tool call or sub-agent activity is a subagent.
+ * @param {object[]} items
+ * @param {number} now
+ * @returns {object[]}
+ */
+export function tasksFromCodexItems(items) {
+  const tasks = new Map()
+  for (const item of items) {
+    if (item.type === 'commandExecution') {
+      const persistent = item.source === 'unifiedExecStartup' || item.source === 'unifiedExecInteraction'
+      if (!persistent && item.status !== 'inProgress') continue
+      tasks.set(item.id, {
+        id: item.id, toolUseId: item.id, kind: 'bash', label: item.command ?? '', background: true,
+        status: taskStatus(item.status), tokens: 0, toolUses: 0, durationMs: item.durationMs ?? 0,
+        ...(item.aggregatedOutput ? { detail: cap(item.aggregatedOutput) } : {}),
+      })
+    } else if (item.type === 'collabAgentToolCall') {
+      tasks.set(item.id, {
+        id: item.id, toolUseId: item.id, kind: 'agent', label: item.prompt ?? item.tool ?? '', subagentType: item.tool ?? '', background: true,
+        status: taskStatus(item.status), tokens: 0, toolUses: 0,
+      })
+    } else if (item.type === 'subAgentActivity') {
+      const id = item.agentThreadId ?? item.id
+      const status = item.kind === 'completed' ? 'completed' : item.kind === 'interrupted' ? 'interrupted' : 'running'
+      tasks.set(id, {
+        id, toolUseId: id, kind: 'agent', label: item.agentPath ?? '', subagentType: item.model ?? '', background: true,
+        status, tokens: 0, toolUses: 0,
+      })
+    }
+  }
+  return [...tasks.values()]
+}
+
+/**
+ * Stamp stable start/finish times onto reconstructed tasks: a shell's duration
+ * comes from its durationMs, a subagent keeps its first-seen start so the live
+ * timer grows instead of resetting on every poll.
+ * @param {object[]} previous
+ * @param {object[]} fresh
+ * @param {number} now
+ * @returns {object[]}
+ */
+export function mergeCodexTasks(previous, fresh, now = Date.now()) {
+  const byId = new Map(previous.map(task => [task.id, task]))
+  for (const task of fresh) {
+    const old = byId.get(task.id)
+    let startedAt
+    let finishedAt
+    if (task.kind === 'bash') {
+      startedAt = now - (task.durationMs ?? 0)
+      finishedAt = task.status === 'running' ? undefined : startedAt + (task.durationMs ?? 0)
+    } else {
+      startedAt = old?.startedAt ?? now
+      finishedAt = task.status === 'running' ? undefined : (old?.finishedAt ?? now)
+    }
+    byId.set(task.id, { ...task, startedAt, ...(finishedAt === undefined ? {} : { finishedAt }) })
+  }
+  return [...byId.values()]
+}
+
 function mcpOutput(result, error) {
   if (error) return cap(typeof error === 'string' ? error : error.message ?? JSON.stringify(error))
   if (result === undefined || result === null) return ''

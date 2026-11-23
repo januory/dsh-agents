@@ -57,6 +57,27 @@ rl.on('line', line => {
     case 'turn/start': {
       const thread = threads.get(params.threadId)
       const text = textOf(params.input)
+      if (text === 'TASKS') {
+        const turnId = `turn-${randomUUID().slice(0, 8)}`
+        const agent = { type: 'collabAgentToolCall', id: 'ca1', tool: 'Explore', prompt: 'count files', status: 'inProgress' }
+        const shell = { type: 'commandExecution', id: 'ce1', command: 'sleep 30', source: 'unifiedExecStartup', status: 'inProgress', processId: 'p1' }
+        thread.items.push({ type: 'userMessage', id: 'u1', content: params.input }, agent, shell)
+        reply(id, { turn: { id: turnId, status: 'inProgress' } })
+        setTimeout(() => {
+          notify('turn/started', { threadId: thread.id, turn: { id: turnId } })
+          notify('item/started', { threadId: thread.id, item: agent })
+          notify('item/started', { threadId: thread.id, item: shell })
+        }, 20)
+        setTimeout(() => {
+          agent.status = 'completed'
+          shell.status = 'completed'
+          shell.durationMs = 300
+          notify('item/completed', { threadId: thread.id, item: agent })
+          notify('item/completed', { threadId: thread.id, item: shell })
+          notify('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
+        }, 400)
+        return
+      }
       const answer = `echo:${text}`
       const turnId = `turn-${randomUUID().slice(0, 8)}`
       const itemId = `msg-${randomUUID().slice(0, 8)}`
