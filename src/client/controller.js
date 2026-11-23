@@ -300,6 +300,29 @@ export class AgentCliController {
     const answer = await this.call('transcript', provider, sessionId)
     if (this.disposed || this.transcript.getSnapshot().key !== key) return
     if (!answer.ok) {
+      // A persisted selection can outlive its session file (deleted/renamed);
+      // fall back to the blank view instead of stranding the reader on an error.
+      if (!answer.transport && /not found/.test(answer.error ?? '')) {
+        this.view.update(d => { d.selected[provider] = undefined })
+        this.transcript.set({
+          key: transcriptKey(provider, ''),
+          provider,
+          session: null,
+          events: [],
+          index: {},
+          loading: false,
+          error: null,
+          turn: null,
+          sending: false,
+          historyLimit: MAX_RENDERED_EVENTS,
+          cwd: null,
+          newNonce,
+          tasks: [],
+          clearedTasks: [],
+          usage: null,
+        })
+        return
+      }
       this.transcript.update(d => {
         d.loading = false
         d.error = answer.error

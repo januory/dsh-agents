@@ -21,7 +21,7 @@ const browser = await chromium.launch({ headless: true, executablePath })
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 // A view persisted before the launch options existed must still hydrate.
 await page.addInitScript(() => {
-  localStorage.setItem('dsh.agents.view.v1', JSON.stringify({ source: 'dsh', selected: {}, query: '', expanded: {}, showHidden: false, groupBy: 'project' }))
+  if (localStorage.getItem('dsh.agents.view.v1') === null) localStorage.setItem('dsh.agents.view.v1', JSON.stringify({ source: 'dsh', selected: {}, query: '', expanded: {}, showHidden: false, groupBy: 'project' }))
 })
 const errors = []
 let expectUploadFailure = false
@@ -1047,6 +1047,19 @@ await step('sidebar-persist', async () => {
   const w2 = (await sidebarGeo()).pw
   if (w2 !== w) throw new Error(`width not restored per session: ${w} -> ${w2}`)
   await shot('ui-10e-sidebar-persist')
+})
+
+await step('stale-selection', async () => {
+  await page.evaluate(() => localStorage.setItem('dsh.agents.view.v1', JSON.stringify({ source: 'claude', selected: { claude: 'definitely-missing-session-xyz' }, query: '', expanded: {}, showHidden: false, groupBy: 'project', launch: {} })))
+  await page.goto(url, { waitUntil: 'domcontentloaded' })
+  await switcher().waitFor({ timeout: 60_000 })
+  await page.locator('[class*="dag-heroTitle"]').first().waitFor({ timeout: 30_000 })
+  await page.waitForTimeout(1000)
+  const bodyText = await page.locator('[class*="dag-page"]').first().textContent()
+  if (/not found under|无法读取/.test(bodyText ?? '')) throw new Error('stale selection still shows a read error')
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('dsh.agents.view.v1')).selected)
+  if (stored.claude !== undefined && stored.claude !== null) throw new Error(`stale selection not cleared: ${JSON.stringify(stored)}`)
+  await shot('ui-11-stale-selection')
 })
 
 console.log('console errors/warnings:', errors.length)
