@@ -68,6 +68,43 @@ export function effortLabel(effort, t) {
   return Object.hasOwn(ZH, `effort.${effort}`) ? t(`effort.${effort}`) : effort
 }
 
+export function tokenCount(n) {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return String(n)
+}
+
+// The VSCode extension's counter clock: hidden under a second, then 45s / 2m 5s / 1h 5m.
+export function taskDuration(ms) {
+  const total = Math.floor(Math.max(0, ms) / 1000)
+  if (total < 1) return ''
+  if (total < 60) return `${total}s`
+  const minutes = Math.floor(total / 60)
+  if (minutes < 60) return `${minutes}m ${total % 60}s`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+}
+
+export function taskCounters(task, now, t) {
+  const parts = []
+  if (task.tokens > 0) parts.push(t('task.tokens', { n: tokenCount(task.tokens) }))
+  if (task.toolUses > 0) parts.push(t(task.toolUses === 1 ? 'task.tool' : 'task.tools', { n: task.toolUses }))
+  const duration = taskDuration((task.status === 'running' ? now : (task.finishedAt ?? now)) - (task.startedAt ?? now))
+  if (duration !== '') parts.push(duration)
+  return parts.join(' · ')
+}
+
+export function taskDotState(task) {
+  if (task.status === 'running') return 'ongoing'
+  if (task.status === 'completed') return 'done'
+  if (task.status === 'failed') return 'error'
+  if (task.status === 'killed' || task.status === 'blocked' || task.status === 'interrupted') return 'warning'
+  return 'idle'
+}
+
+export function taskStatusLabel(task, t) {
+  return Object.hasOwn(ZH, `task.status.${task.status}`) ? t(`task.status.${task.status}`) : task.status
+}
+
 export function runDuration(ms, t) {
   const total = Math.max(0, Math.floor(ms / 1000))
   const hours = Math.floor(total / 3600)

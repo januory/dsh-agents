@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ClaudeLive, parseClaudeRecords, summarizeClaude } from '../src/providers/claude-format.js'
+import { ClaudeLive, mergeTasks, parseClaudeRecords, summarizeClaude, taskNotificationOf, tasksFromRecords } from '../src/providers/claude-format.js'
 import { codexItemToEvent, codexThreadSummary } from '../src/providers/codex-format.js'
 
 const iso = ms => new Date(ms).toISOString()
@@ -149,4 +149,45 @@ test('codex thread summary uses name then preview and seconds timestamps', () =>
   assert.equal(summary.updatedAt, 20_000)
   assert.deepEqual(summary.live, { status: 'active', flags: ['waitingOnApproval'] })
   assert.equal(codexThreadSummary({ ...thread, name: 'named' }).title, 'named')
+})
+
+test('background tasks and subagents are reconstructed from launch calls and queued notifications', () => {
+  const xml = '<task-notification>\n<task-id>taskbg</task-id>\n<tool-use-id>toolu_bg</tool-use-id>\n<output-file>/tmp/x.output</output-file>\n<status>completed</status>\n<summary>Background command "probe" completed (exit code 0)</summary>\n</task-notification>'
+  const agentXml = '<task-notification>\n<task-id>taskag</task-id>\n<tool-use-id>toolu_ag</tool-use-id>\n<status>completed</status>\n<summary>Agent "count" finished</summary>\n<result>3 files</result>\n<usage>\n<subagent_tokens>1500</subagent_tokens>\n<tool_uses>4</tool_uses>\n<duration_ms>900</duration_ms>\n</usage>\n</task-notification>'
+  const records = [
+    { type: 'assistant', uuid: 'a1', timestamp: iso(1000), message: { content: [{ type: 'tool_use', id: 'toolu_bg', name: 'Bash', input: { command: 'sleep 1', description: 'probe', run_in_background: true } }] } },
+    { type: 'user', uuid: 'u1', timestamp: iso(1100), message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_bg', content: 'started' }] } },
+    { type: 'assistant', uuid: 'a2', timestamp: iso(1200), message: { content: [{ type: 'tool_use', id: 'toolu_ag', name: 'Agent', input: { description: 'count', subagent_type: 'Explore', run_in_background: true } }] } },
+    { type: 'user', uuid: 'u2', timestamp: iso(1300), message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_ag', content: 'launched' }] } },
+    { type: 'assistant', uuid: 'a3', timestamp: iso(1400), message: { content: [{ type: 'tool_use', id: 'toolu_fg', name: 'Agent', input: { description: 'foreground', subagent_type: 'Plan' } }] } },
+    { type: 'user', uuid: 'u3', timestamp: iso(1500), message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_fg', content: 'plan ready' }] } },
+    { type: 'queue-operation', operation: 'enqueue', timestamp: iso(2000), content: xml },
+    { type: 'queue-operation', operation: 'remove', timestamp: iso(2100), content: xml },
+    { type: 'queue-operation', operation: 'enqueue', timestamp: iso(2200), content: agentXml },
+  ]
+  const tasks = tasksFromRecords(records)
+  const bg = tasks.find(t => t.toolUseId === 'toolu_bg')
+  assert.equal(bg.status, 'completed')
+  assert.equal(bg.kind, 'bash')
+  assert.equal(bg.label, 'probe')
+  assert.equal(bg.outputFile, '/tmp/x.output')
+  assert.match(bg.detail, /exit code 0/)
+  const ag = tasks.find(t => t.toolUseId === 'toolu_ag')
+  assert.equal(ag.status, 'completed')
+  assert.equal(ag.result, '3 files')
+  assert.equal(ag.tokens, 1500)
+  assert.equal(ag.toolUses, 4)
+  const fg = tasks.find(t => t.toolUseId === 'toolu_fg')
+  assert.equal(fg.status, 'completed')
+  assert.equal(fg.background, false)
+  assert.equal(fg.result, 'plan ready')
+  assert.equal(taskNotificationOf('no xml here'), undefined)
+  const live = [{ id: 'toolu_bg', toolUseId: 'toolu_bg', kind: 'bash', label: 'probe', status: 'running', tokens: 0, toolUses: 1, durationMs: 300, startedAt: 1000 }]
+  const merged = mergeTasks(tasks, live)
+  const mergedBg = merged.find(t => t.toolUseId === 'toolu_bg')
+  assert.equal(mergedBg.status, 'running')
+  assert.equal(mergedBg.toolUses, 1)
+  assert.equal(mergedBg.detail, bg.detail)
+  assert.equal(merged.length, tasks.length)
+  assert.equal(mergeTasks([], live).length, 1)
 })

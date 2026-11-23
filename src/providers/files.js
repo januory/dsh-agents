@@ -59,3 +59,17 @@ export function tailRecords(path, maxBytes) {
   if (size <= maxBytes) return { records: parseLines(readRange(path, 0, size)), size, hasEarlier: false }
   return { records: parseLines(readRange(path, size - maxBytes, maxBytes), { dropFirst: true }), size, hasEarlier: true }
 }
+
+/**
+ * Last bytes of a plain-text file (a background task's output log).
+ * @param {string} path
+ * @param {number} maxBytes
+ * @returns {{ text: string, size: number, hasEarlier: boolean }}
+ */
+export function tailText(path, maxBytes) {
+  const size = statSync(path).size
+  if (size <= maxBytes) return { text: readRange(path, 0, size), size, hasEarlier: false }
+  const text = readRange(path, size - maxBytes, maxBytes)
+  const cut = text.indexOf('\n')
+  return { text: cut === -1 ? text : text.slice(cut + 1), size, hasEarlier: true }
+}

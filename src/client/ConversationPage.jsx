@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { IconChevronLeftOutlineMedium, PathLabel, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { IconChevronLeftOutlineMedium, IconFlatListOutlineRegular, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
 import { SourceIcon } from './SourceIcon.jsx'
 import { Composer } from './Composer.jsx'
 import { Transcript, TurnStatus } from './Transcript.jsx'
+import { TasksPanel } from './Tasks.jsx'
 import { isLive, workspaceOptions } from './controller.js'
 import css from './ConversationPage.module.css'
+
+// dsh docks its session panel only once the end gutter holds 40px clear + 8px edge + 300px panel.
+const DOCK_FRAME_WIDTH = 1576
 
 function useStickToBottom(dep) {
   const ref = useRef(null)
@@ -29,7 +33,7 @@ function useStickToBottom(dep) {
  * composer below. It is a root main panel, so it carries no dsh session.
  */
 export function ConversationPage(props) {
-  const { t, useAgentView, useAgentTranscript, useAgentProviders, useAgentSessions, useAgentSettings, useAgentModels, send, cancel, answer, answerQuestion, showEarlier, setSource, setLaunch, pickDirectory, addWorkspace } = props
+  const { t, useAgentView, useAgentTranscript, useAgentProviders, useAgentSessions, useAgentSettings, useAgentModels, send, cancel, answer, answerQuestion, loadTaskOutput, clearTasks, showEarlier, setSource, setLaunch, pickDirectory, addWorkspace } = props
   const source = useAgentView(s => s.source)
   const transcript = useAgentTranscript(s => s)
   const providers = useAgentProviders(s => s.list)
@@ -46,6 +50,51 @@ export function ConversationPage(props) {
   const workspaces = useMemo(() => workspaceOptions(bucket), [bucket?.list, bucket?.workspaces])
   const last = transcript.events[transcript.events.length - 1]
   const scrollRef = useStickToBottom(`${transcript.key}:${transcript.events.length}:${last?.text?.length ?? 0}:${last?.output?.length ?? 0}`)
+  const [panelOpen, setPanelOpen] = useState(true)
+  const [docked, setDocked] = useState(false)
+  const frameRef = useRef(null)
+  const seatRef = useRef(null)
+  const panelRef = useRef(null)
+  const toggleRef = useRef(null)
+  const tasks = transcript.tasks ?? []
+  const runningTasks = tasks.filter(task => task.status === 'running').length
+  const blank = isNew && transcript.events.length === 0 && !transcript.sending && transcript.error === null
+
+  useEffect(() => {
+    const frame = frameRef.current
+    const seat = seatRef.current
+    if (frame === null || seat === null) return
+    const measure = () => {
+      setDocked(frame.clientWidth >= DOCK_FRAME_WIDTH)
+      frame.style.setProperty('--dag-composer-height', `${seat.getBoundingClientRect().height}px`)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(frame)
+    observer.observe(seat)
+    return () => observer.disconnect()
+  }, [blank, source])
+
+  useEffect(() => {
+    if (!panelOpen || docked) return
+    const onPointerDown = event => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (panelRef.current?.contains(target) === true || toggleRef.current?.contains(target) === true || target.closest('[role="menu"]') !== null) return
+      setPanelOpen(false)
+    }
+    const onKeyDown = event => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      if (document.querySelector('[role="dialog"], [role="menu"]') !== null) return
+      setPanelOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [panelOpen, docked])
 
   if (source === 'dsh') return null
 
@@ -61,7 +110,6 @@ export function ConversationPage(props) {
         : t('error.send', { error: transcript.error })
 
   const title = session === null ? t('page.new', { name }) : (session.title || t('row.untitled'))
-  const blank = isNew && transcript.events.length === 0 && !transcript.sending && transcript.error === null
   const draftKey = `${source}:${session?.id ?? 'new'}`
   const composer = (
     <Composer
@@ -77,6 +125,7 @@ export function ConversationPage(props) {
       sending={transcript.sending}
       disabledReason={disabledReason}
       launch={launch}
+      tasks={transcript.tasks ?? []}
       models={models}
       workspaces={workspaces}
       initialCwd={transcript.cwd}
@@ -121,37 +170,64 @@ export function ConversationPage(props) {
         <SourceIcon source={source} size={16} className={css.mark} />
         <div className={css.heading}>
           <div className={css.title} title={title}>{title}</div>
-          <div className={css.meta}>
-            {session?.cwd && <PathLabel path={session.cwd} className={css.path} />}
-            {session?.gitBranch && <Tag tone="quiet">{session.gitBranch}</Tag>}
-            {(session?.model ?? transcript.events.find(e => e.type === 'meta')?.model) && <Tag tone="quiet">{session?.model ?? transcript.events.find(e => e.type === 'meta').model}</Tag>}
-            {session?.live !== undefined && <Tag tone="warning">{session.live.pid !== undefined ? t('composer.elsewhere', { name, pid: session.live.pid }) : t('row.elsewhere')}</Tag>}
-          </div>
-        </div>
-      </header>
-      <div className={css.body} ref={scrollRef}>
-        <div className={css.view}>
-          {transcript.loading ? <div className={css.center}>{t('page.loading')}</div>
-            : transcript.error !== null && transcript.events.length === 0 ? <div className={cx(css.center, css.error)}>{t('page.error', { error: transcript.error })}</div>
-              : transcript.events.length === 0 ? (
-                <div className={css.hero}>
-                  <SourceIcon source={source} size={28} />
-                  <div className={css.heroTitle}>{t('row.untitled')}</div>
-                </div>
-              ) : (
-                <>
-                  {session?.hasEarlier && <div className={css.truncated}>{t('page.truncated')}</div>}
-                  <Transcript events={transcript.events} limit={transcript.historyLimit} t={t} onAnswer={answer} onQuestion={answerQuestion} onEarlier={showEarlier} />
-                </>
-              )}
-          {transcript.turn !== null && transcript.turn.status !== 'done' && (
-            <div className={css.statusRow}><TurnStatus turn={transcript.turn} name={name} source={source} t={t} /></div>
+          {session?.live !== undefined && (
+            <div className={css.meta}>
+              <Tag tone="warning">{session.live.pid !== undefined ? t('composer.elsewhere', { name, pid: session.live.pid }) : t('row.elsewhere')}</Tag>
+            </div>
           )}
         </div>
-        <div className={css.composerSeat}>
-          {sendError !== undefined && !transcript.loading && <div className={css.sendError} role="alert">{sendError}</div>}
-          {composer}
+        {tasks.length > 0 && (
+          <button type="button" className={css.headerJobs} aria-expanded={panelOpen} aria-label={t('task.headerCount', { n: tasks.length })} onClick={() => setPanelOpen(v => !v)}>
+            {runningTasks > 0
+              ? (
+                <svg className={css.jobsSpinner} viewBox="0 0 16 16" width="12" height="12" aria-hidden>
+                  <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="2" />
+                  <path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              )
+              : <IconFlatListOutlineRegular size={12} />}
+            <span>{t('task.headerCount', { n: tasks.length })}</span>
+          </button>
+        )}
+        {tasks.length > 0 && (
+          <Tooltip label={t(panelOpen ? 'task.hidePanel' : 'task.showPanel')} side="bottom" delayMs={400}>
+            <button type="button" ref={toggleRef} className={css.panelToggle} aria-expanded={panelOpen} aria-label={t('task.title')} onClick={() => setPanelOpen(v => !v)}>
+              <IconFlatListOutlineRegular size={16} />
+              {runningTasks > 0 && <span className={css.toggleDot} aria-hidden />}
+            </button>
+          </Tooltip>
+        )}
+      </header>
+      <div className={css.frame} ref={frameRef} data-docked={docked ? 'true' : 'false'}>
+        <div className={css.body} ref={scrollRef}>
+          <div className={css.view}>
+            {transcript.loading ? <div className={css.center}>{t('page.loading')}</div>
+              : transcript.error !== null && transcript.events.length === 0 ? <div className={cx(css.center, css.error)}>{t('page.error', { error: transcript.error })}</div>
+                : transcript.events.length === 0 ? (
+                  <div className={css.hero}>
+                    <SourceIcon source={source} size={28} />
+                    <div className={css.heroTitle}>{t('row.untitled')}</div>
+                  </div>
+                ) : (
+                  <>
+                    {session?.hasEarlier && <div className={css.truncated}>{t('page.truncated')}</div>}
+                    <Transcript events={transcript.events} limit={transcript.historyLimit} t={t} tasks={transcript.tasks ?? []} onAnswer={answer} onQuestion={answerQuestion} onEarlier={showEarlier} />
+                  </>
+                )}
+            {transcript.turn !== null && transcript.turn.status !== 'done' && (
+              <div className={css.statusRow}><TurnStatus turn={transcript.turn} name={name} source={source} t={t} /></div>
+            )}
+          </div>
+          <div className={css.composerSeat} ref={seatRef}>
+            {sendError !== undefined && !transcript.loading && <div className={css.sendError} role="alert">{sendError}</div>}
+            {composer}
+          </div>
         </div>
+        {tasks.length > 0 && panelOpen && (
+          <aside className={cx(css.panel, docked ? css.docked : css.overlay)} ref={panelRef} aria-label={t('task.title')}>
+            <TasksPanel tasks={tasks} t={t} loadOutput={loadTaskOutput} onClear={clearTasks} />
+          </aside>
+        )}
       </div>
     </div>
   )

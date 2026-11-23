@@ -5,6 +5,7 @@ const TURN_POLL_MS = 250
 const APPROVAL_POLL_MS = 600
 const LIST_REFRESH_MS = 8_000
 const ACTIVE_REFRESH_MS = 2_000
+const TASK_REFRESH_MS = 1_500
 const MAX_RENDERED_EVENTS = 300
 
 export const SOURCES = ['dsh', 'claude', 'codex']
@@ -52,12 +53,16 @@ export class AgentCliController {
       historyLimit: MAX_RENDERED_EVENTS,
       cwd: null,
       newNonce: 0,
+      tasks: [],
+      clearedTasks: [],
     })
     this.settings = createSnapshotStore({ providers: {}, loaded: false, error: null })
     this.sourceChanged = () => {}
     this.pollTimer = undefined
     this.listTimer = undefined
     this.activeTimer = undefined
+    this.taskTimer = undefined
+    this.taskPolling = false
     this.pollSeq = 0
     this.pollRetries = 0
     this.polling = false
@@ -68,6 +73,7 @@ export class AgentCliController {
       if (this.view.getSnapshot().source !== 'dsh') {
         void this.refreshSessions()
         void this.refreshActive()
+        void this.refreshTasks()
       }
       this.#resumePoll()
     }
@@ -97,6 +103,7 @@ export class AgentCliController {
     window.removeEventListener('online', this.onOnline)
     this.#stopPolling()
     this.#stopListWatcher()
+    this.#stopTaskWatch()
   }
 
   bucket(provider) {
@@ -205,10 +212,12 @@ export class AgentCliController {
     })
     if (source === 'dsh') {
       this.#stopListWatcher()
+      this.#stopTaskWatch()
     } else {
       if (!this.bucket(source).loaded) void this.refreshSessions(source)
       void this.loadModels(source)
       this.#startListWatcher()
+      this.#ensureTaskWatch()
       const selected = this.view.getSnapshot().selected[source] ?? null
       const current = this.transcript.getSnapshot()
       if (current.provider !== source || current.key !== transcriptKey(source, selected ?? '')) void this.open(source, selected)
@@ -258,7 +267,10 @@ export class AgentCliController {
         historyLimit: MAX_RENDERED_EVENTS,
         cwd: options?.cwd ?? null,
         newNonce,
+        tasks: [],
+        clearedTasks: [],
       })
+      this.#ensureTaskWatch()
       return
     }
     const key = transcriptKey(provider, sessionId)
@@ -276,7 +288,10 @@ export class AgentCliController {
       historyLimit: MAX_RENDERED_EVENTS,
       cwd: null,
       newNonce,
+      tasks: [],
+      clearedTasks: [],
     })
+    this.#ensureTaskWatch()
     const answer = await this.call('transcript', provider, sessionId)
     if (this.disposed || this.transcript.getSnapshot().key !== key) return
     if (!answer.ok) {
@@ -293,8 +308,10 @@ export class AgentCliController {
       d.session = answer.session
       d.events = events
       d.index = Object.fromEntries(events.map((event, i) => [event.id, i]))
+      d.tasks = Array.isArray(answer.tasks) ? answer.tasks : []
     })
     if (active !== undefined) this.#attach(active.turnId, 0, active.startedAt)
+    this.#ensureTaskWatch()
   }
 
   /**
@@ -411,6 +428,8 @@ export class AgentCliController {
       d.provider = provider
       d.session = { ...(d.session ?? {}), provider, id: sessionId, cwd: cwd ?? d.session?.cwd, title: d.session?.title ?? '' }
     })
+    this.#ensureTaskWatch()
+    void this.refreshTasks()
   }
 
   #attach(turnId, fromSeq, startedAt) {
@@ -420,6 +439,7 @@ export class AgentCliController {
     this.pollRetries = 0
     this.transcript.update(d => { d.turn = { id: turnId, status: 'running', error: null, startedAt: startedAt ?? Date.now() } })
     void this.refreshActive()
+    this.#ensureTaskWatch()
     void this.#poll()
   }
 
@@ -481,6 +501,55 @@ export class AgentCliController {
     }
     this.turnId = undefined
     void this.refreshSessions(current.provider ?? this.view.getSnapshot().source)
+    void this.refreshTasks()
+  }
+
+  // Background tasks keep running after the turn's result; watch them while
+  // any is live, then let the settled rows rest until the next turn.
+  async refreshTasks() {
+    const state = this.transcript.getSnapshot()
+    const provider = state.provider
+    const sessionId = state.session?.id
+    if (provider === null || sessionId === undefined || this.disposed || this.taskPolling) return
+    this.taskPolling = true
+    try {
+      const answer = await this.call('tasks', provider, sessionId)
+      if (this.disposed || this.transcript.getSnapshot().session?.id !== sessionId) return
+      if (answer.ok && Array.isArray(answer.tasks)) {
+        this.transcript.update(d => { d.tasks = answer.tasks.filter(task => !d.clearedTasks.includes(task.id)) })
+      }
+    } finally {
+      this.taskPolling = false
+    }
+    this.#ensureTaskWatch()
+  }
+
+  #ensureTaskWatch() {
+    const state = this.transcript.getSnapshot()
+    const wanted = state.session?.id !== undefined && ((state.turn !== null && isLive(state.turn.status)) || state.tasks.some(task => task.status === 'running'))
+    if (wanted && this.taskTimer === undefined) {
+      this.taskTimer = setInterval(() => {
+        if (document.visibilityState === 'visible') void this.refreshTasks()
+      }, TASK_REFRESH_MS)
+    } else if (!wanted) this.#stopTaskWatch()
+  }
+
+  #stopTaskWatch() {
+    if (this.taskTimer !== undefined) clearInterval(this.taskTimer)
+    this.taskTimer = undefined
+  }
+
+  clearSettledTasks() {
+    this.transcript.update(d => {
+      for (const task of d.tasks) if (task.status !== 'running' && !d.clearedTasks.includes(task.id)) d.clearedTasks.push(task.id)
+      d.tasks = d.tasks.filter(task => task.status === 'running')
+    })
+  }
+
+  loadTaskOutput(taskId) {
+    const state = this.transcript.getSnapshot()
+    if (state.provider === null || state.session?.id === undefined) return Promise.resolve({ ok: false, error: 'no session' })
+    return this.call('taskOutput', state.provider, state.session.id, taskId)
   }
 
   #stopPolling() {

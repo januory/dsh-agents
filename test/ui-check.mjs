@@ -30,7 +30,9 @@ page.on('console', msg => {
 })
 page.on('pageerror', error => errors.push(`[pageerror] ${error.message}`))
 const shot = name => page.screenshot({ path: join(out, `${name}.png`), fullPage: false })
+const only = process.env.ONLY === undefined ? null : new Set(process.env.ONLY.split(','))
 const step = async (name, fn) => {
+  if (only !== null && !only.has(name)) return
   try {
     await fn()
     console.log('ok', name)
@@ -53,6 +55,14 @@ const pickWorkspace = async label => {
   await switcher().click()
   await page.getByText(new RegExp(`^(${label})$`)).first().click()
   await page.waitForTimeout(600)
+}
+// The floating panel dismisses on outside presses like dsh's, so reopen it after clicking elsewhere.
+const ensurePanel = async () => {
+  if (await page.locator('[data-tasks-panel]').count() > 0) return
+  const toggle = page.locator('button[aria-label="后台任务"], button[aria-label="Background tasks"]')
+  await toggle.waitFor({ timeout: 15_000 })
+  await toggle.click()
+  await page.locator('[data-tasks-panel]').waitFor({ timeout: 5000 })
 }
 
 await step('load', async () => {
@@ -497,6 +507,91 @@ if (!skipTurns) await step('background-dot', async () => {
   await page.locator('[class*="dag-approval"][role="alertdialog"]').first().waitFor({ timeout: 30_000 })
   await page.getByRole('button', { name: /^(Allow|允许)$/ }).first().click()
   await page.waitForFunction(() => document.querySelector('[class*="dag-statusLive"]') === null, null, { timeout: 60_000 })
+})
+
+if (!skipTurns) await step('background-task', async () => {
+  const area = page.locator('[class*="dag-textarea"]')
+  const send = page.locator('button[aria-label="Send"], button[aria-label="发送"]')
+  const panel = page.locator('[data-tasks-panel]')
+  await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
+  await page.waitForTimeout(600)
+  await page.locator('button[aria-label="选择工作区"], button[aria-label="Choose workspace"]').click()
+  await page.locator('[role="menu"] [role="menuitem"], [role="menu"] button').filter({ hasText: 'smoke-claude' }).first().click()
+  await page.waitForTimeout(400)
+  await area.fill('Use the Bash tool with run_in_background: true to run `sleep 12; echo BG_DONE | tee ui-bg.txt` (description "ui bg probe"). Then reply exactly STARTED. Do not wait for the task.')
+  await send.click()
+  const allowButtons = page.locator('[class*="dag-approval"][role="alertdialog"]').getByRole('button', { name: /^(Allow|允许)$/ })
+  await allowButtons.last().waitFor({ timeout: 90_000 })
+  for (let i = 0; i < 12 && await allowButtons.count() > 0; i++) {
+    await allowButtons.last().click().catch(() => {})
+    await page.waitForTimeout(1200)
+  }
+  const rowKey = await page.locator('[data-row-key^="agent:claude:"][aria-selected="true"]').getAttribute('data-row-key')
+  const openSettled = async () => {
+    await ensurePanel()
+    if (await panel.locator('[data-task-row]').count() === 0) await panel.locator('[class*="sectionToggle"]').click()
+    await panel.locator('[data-task-row]').first().waitFor({ timeout: 5000 })
+  }
+  await ensurePanel()
+  await page.locator('[class*="headerJobs"]').filter({ hasText: /个后台任务|background jobs/ }).waitFor({ timeout: 5000 })
+  await panel.locator('[data-task-row]').first().waitFor({ timeout: 15_000 })
+  await shot('ui-06i-background-running')
+  await page.waitForFunction(() => /已结束|Finished/.test(document.querySelector('[data-tasks-panel]')?.textContent ?? ''), null, { timeout: 90_000 })
+  await openSettled()
+  await panel.locator('[data-task-row] button').first().click()
+  await panel.locator('[data-terminal]').waitFor({ timeout: 5000 })
+  await page.waitForFunction(() => /BG_DONE/.test(document.querySelector('[data-tasks-panel]')?.textContent ?? ''), null, { timeout: 30_000 })
+  if (!existsSync(join(root, 'tmp', 'smoke-claude', 'ui-bg.txt'))) throw new Error('background task did not survive the turn')
+  await shot('ui-06j-background-done')
+  await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
+  await page.waitForTimeout(800)
+  await page.evaluate(k => { document.querySelector(`[data-row-key="${k}"]`).click() }, rowKey)
+  await ensurePanel()
+  if (!/已结束|Finished/.test(await panel.textContent())) throw new Error('completion record lost after reopening the session')
+  await openSettled()
+  await shot('ui-06k-background-history')
+})
+
+if (!skipTurns) await step('subagent-chips', async () => {
+  const area = page.locator('[class*="dag-textarea"]')
+  const send = page.locator('button[aria-label="Send"], button[aria-label="发送"]')
+  const chips = page.locator('[data-task-chips] [data-task-chip]')
+  const panel = page.locator('[data-tasks-panel]')
+  await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
+  await page.waitForTimeout(600)
+  await page.locator('button[aria-label="选择工作区"], button[aria-label="Choose workspace"]').click()
+  await page.locator('[role="menu"] [role="menuitem"], [role="menu"] button').filter({ hasText: 'smoke-claude' }).first().click()
+  await page.waitForTimeout(400)
+  // The turn stays open on its own sleep so the subagent's Bash approval lands on a live turn instead of being denied.
+  await area.fill("Use the Agent tool with subagent_type 'Explore', run_in_background: true, description 'count probe files', prompt 'Use the Bash tool to run `sleep 20`, then reply with the number of files in the current working directory.'. Then use the Bash tool yourself to run `sleep 30` (description 'keep turn open'). Then reply exactly AGENT_STARTED.")
+  await send.click()
+  const allowButtons = page.locator('[class*="dag-approval"][role="alertdialog"]').getByRole('button', { name: /^(Allow|允许)$/ })
+  let sawChip = false
+  let chipText = ''
+  let chipShot = false
+  const t0 = Date.now()
+  while (Date.now() - t0 < 150_000) {
+    if (await allowButtons.count().catch(() => 0)) await allowButtons.last().click().catch(() => {})
+    const present = await chips.count().catch(() => 0)
+    if (present) {
+      sawChip = true
+      chipText = await chips.first().textContent().catch(() => '')
+      if (!chipShot && /tokens|工具|tool/.test(chipText)) { await shot('ui-06l-subagent-chip'); chipShot = true }
+    } else if (sawChip) break
+    await page.waitForTimeout(1000)
+  }
+  if (!sawChip) throw new Error('subagent chip never shown while running')
+  if (!/Explore/.test(chipText)) throw new Error(`subagent chip missing its type: ${chipText}`)
+  if (!chipShot) throw new Error(`subagent chip never showed counters: ${chipText}`)
+  await ensurePanel()
+  const agentRow = panel.locator('[data-task-row]').filter({ hasText: 'count probe files' })
+  await page.waitForFunction(() => /已结束|Finished/.test(document.querySelector('[data-tasks-panel]')?.textContent ?? ''), null, { timeout: 30_000 })
+  if (await agentRow.count() === 0) await panel.locator('[class*="sectionToggle"]').click()
+  await agentRow.first().waitFor({ timeout: 5000 })
+  if (!/\d/.test(await agentRow.first().locator('[class*="duration"]').textContent())) throw new Error('settled subagent row lost its duration')
+  await agentRow.first().locator('button').first().click()
+  await page.waitForFunction(() => /\d/.test(document.querySelector('[data-tasks-panel] pre')?.textContent ?? ''), null, { timeout: 15_000 })
+  await shot('ui-06m-subagent-settled')
 })
 
 await step('switch-codex', async () => {

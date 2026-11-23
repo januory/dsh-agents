@@ -6,11 +6,85 @@
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
   /* dsh's adaptive width axis: transcript column clamp(680, 64% of the column,
-     880), composer card 32px wider, 16px side clearance. */
+     880), composer card 32px wider. A docked panel shifts the column into the
+     start gutter instead of narrowing it. */
   container-type: inline-size;
-  --dag-content-width: clamp(680px, 64cqw, 880px);
+  --dag-content-width: clamp(680px, calc(100cqw * 0.64), 880px);
   --dag-composer-card-max: calc(var(--dag-content-width) + 32px);
   --dag-composer-side-clearance: 16px;
+}
+
+.frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* dsh's floating session panel: a menu-tier card at the top of the chat frame's
+   end gutter, stopping above the composer stack. */
+.panel {
+  position: absolute;
+  top: 12px;
+  right: 8px;
+  max-height: calc(100% - var(--dag-composer-height, 152px) - 24px);
+  z-index: 9;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 8px;
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: var(--dsw-elevation-panel);
+  animation: dag-panel-enter 160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.overlay {
+  width: min(280px, calc(100% - 16px));
+  box-shadow: var(--dsw-elevation-prominent);
+}
+
+.docked {
+  width: clamp(300px, calc((100cqw + 348px - var(--dag-content-width)) / 2 - 48px), 360px);
+}
+
+.frame[data-docked='true'] .body {
+  padding-right: 348px;
+}
+
+@keyframes dag-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+}
+
+.panelToggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.toggleDot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 1.5px var(--dsw-alias-bg-base);
 }
 
 .header {
@@ -43,11 +117,49 @@
 }
 
 .heading {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* dsh's header detail chip: the background-task count sits right after the title. */
+.headerJobs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.jobsSpinner {
+  animation: dag-jobs-spin 800ms linear infinite;
+}
+
+@keyframes dag-jobs-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jobsSpinner {
+    animation-duration: 2400ms;
+  }
+}
+
+@media (hover: hover) {
+  .headerJobs:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .title {
@@ -69,15 +181,11 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.path {
-  min-width: 0;
-  max-width: 420px;
-}
-
 /* dsh's scroll frame: the transcript and the sticky composer seat share one
    scrollport, so the gutter it reserves shifts both by the same amount. */
 .body {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   overflow-x: clip;

@@ -5,7 +5,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
 import { SourceIcon, sourceColor } from './SourceIcon.jsx'
-import { basename, jsonLabels, markdownLabels, runDuration, terminalLabels } from './labels.js'
+import { basename, jsonLabels, markdownLabels, runDuration, taskStatusLabel, terminalLabels } from './labels.js'
 import { attachmentUrl } from './uploads.js'
 import css from './Transcript.module.css'
 
@@ -41,6 +41,7 @@ function toolSummary(event) {
   if (kind === 'search') return String(input.pattern ?? input.query ?? input.path ?? event.name)
   if (kind === 'web') return String(input.url ?? input.query ?? event.name)
   if (event.name === 'TodoWrite') return 'Todo'
+  if (event.name === 'Agent' || event.name === 'Task') return String(input.description ?? input.subagent_type ?? event.name)
   return event.name ?? ''
 }
 
@@ -161,7 +162,7 @@ const ThinkingItem = memo(function ThinkingItem({ event, t }) {
   )
 })
 
-const ToolItem = memo(function ToolItem({ event, t }) {
+const ToolItem = memo(function ToolItem({ event, t, task }) {
   const [manual, setManual] = useState(null)
   const kind = toolKind(event.name)
   const Icon = TOOL_ICONS[kind] ?? IconCodeOutlineMedium
@@ -169,6 +170,7 @@ const ToolItem = memo(function ToolItem({ event, t }) {
   const failed = event.status === 'error' || event.isError === true
   const summary = toolSummary(event)
   const input = event.input ?? {}
+  const background = kind === 'bash' && (task?.background === true || input.run_in_background === true)
   const output = event.output ?? (typeof event.inputText === 'string' ? event.inputText : '')
   const diff = kind === 'edit' ? diffTextOf(event) : ''
   const images = event.images ?? []
@@ -181,7 +183,7 @@ const ToolItem = memo(function ToolItem({ event, t }) {
   ) : null
   let body
   if (kind === 'bash') {
-    body = <TerminalBlock command={String(input.command ?? '')} cwd={typeof input.cwd === 'string' ? input.cwd : undefined} output={output} exitCode={event.exitCode} running={running} labels={terminalLabels(t)} maxLines={12} />
+    body = <TerminalBlock command={String(input.command ?? '')} cwd={typeof input.cwd === 'string' ? input.cwd : undefined} output={output} exitCode={event.exitCode} running={running} background={background} labels={terminalLabels(t)} maxLines={12} />
   } else if (diff !== '') {
     body = <CodeBlock code={diff} lang={kind === 'edit' && typeof input.content === 'string' && !event.structured ? langOf(input.file_path) : 'diff'} diff={!(typeof input.content === 'string' && !event.structured)} copyLabel={t('copy')} copiedLabel={t('copied')} />
   } else if (kind === 'read' && output !== '' && images.length === 0) {
@@ -207,7 +209,8 @@ const ToolItem = memo(function ToolItem({ event, t }) {
       className={cx(css.disclosure, failed && css.failed)}
       rowClassName={css.toolRow}
       titleClassName={kind === 'bash' ? css.mono : undefined}
-      headerAccessory={failed ? <Tag tone="danger">{t('tool.error')}</Tag> : event.exitCode !== undefined && event.exitCode !== 0 ? <Tag tone="warning">{t('tool.exitCode', { code: event.exitCode })}</Tag> : undefined}
+      headerAccessory={task !== undefined ? <Tag tone={task.status === 'failed' ? 'danger' : task.status === 'running' || task.status === 'completed' ? 'quiet' : 'warning'}>{taskStatusLabel(task, t)}</Tag>
+        : failed ? <Tag tone="danger">{t('tool.error')}</Tag> : event.exitCode !== undefined && event.exitCode !== 0 ? <Tag tone="warning">{t('tool.exitCode', { code: event.exitCode })}</Tag> : undefined}
     >
       <div className={css.disclosureContent}>{thumbs}{body}</div>
     </DisclosureRow>
@@ -328,12 +331,12 @@ const QuestionItem = memo(function QuestionItem({ event, t, onQuestion }) {
   )
 })
 
-export function TranscriptItem({ event, t, onAnswer, onQuestion }) {
+export function TranscriptItem({ event, t, task, onAnswer, onQuestion }) {
   switch (event.type) {
     case 'user': return <UserItem event={event} t={t} />
     case 'assistant': return <AssistantItem event={event} t={t} />
     case 'thinking': return <ThinkingItem event={event} t={t} />
-    case 'tool': return <ToolItem event={event} t={t} />
+    case 'tool': return <ToolItem event={event} t={t} task={task} />
     case 'approval': return <ApprovalItem event={event} t={t} onAnswer={onAnswer} />
     case 'question': return <QuestionItem event={event} t={t} onQuestion={onQuestion} />
     case 'error': return <ErrorItem event={event} />
@@ -342,13 +345,15 @@ export function TranscriptItem({ event, t, onAnswer, onQuestion }) {
   }
 }
 
-export function Transcript({ events, limit, t, onAnswer, onQuestion, onEarlier }) {
+export function Transcript({ events, limit, t, tasks, onAnswer, onQuestion, onEarlier }) {
   const start = Math.max(0, events.length - limit)
   const shown = events.slice(start)
+  const byTool = new Map()
+  for (const task of tasks ?? []) if (task.toolUseId !== undefined) byTool.set(task.toolUseId, task)
   return (
     <div className={css.transcript}>
       {start > 0 && <button type="button" className={css.earlier} onClick={onEarlier}>{t('page.earlier', { n: Math.min(start, 300) })}</button>}
-      {shown.map(event => <TranscriptItem key={event.id} event={event} t={t} onAnswer={onAnswer} onQuestion={onQuestion} />)}
+      {shown.map(event => <TranscriptItem key={event.id} event={event} t={t} task={byTool.get(event.id)} onAnswer={onAnswer} onQuestion={onQuestion} />)}
     </div>
   )
 }

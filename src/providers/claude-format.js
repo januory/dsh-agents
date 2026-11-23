@@ -172,6 +172,135 @@ export function summarizeClaude({ path, id, head, tail, size, mtimeMs, customTit
   }
 }
 
+function tagOf(text, tag) {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text)
+  return match === null ? undefined : match[1].trim()
+}
+
+/**
+ * The CLI persists a background task's completion as a queued
+ * `<task-notification>` message; the same XML the model later receives.
+ */
+export function taskNotificationOf(content) {
+  if (typeof content !== 'string' || !content.includes('<task-notification>')) return undefined
+  const taskId = tagOf(content, 'task-id')
+  const toolUseId = tagOf(content, 'tool-use-id')
+  if (taskId === undefined && toolUseId === undefined) return undefined
+  const usage = tagOf(content, 'usage')
+  return {
+    taskId,
+    toolUseId,
+    status: tagOf(content, 'status') ?? 'completed',
+    summary: tagOf(content, 'summary'),
+    result: tagOf(content, 'result'),
+    outputFile: tagOf(content, 'output-file'),
+    tokens: usage === undefined ? undefined : Number(tagOf(usage, 'subagent_tokens') ?? 0),
+    toolUses: usage === undefined ? undefined : Number(tagOf(usage, 'tool_uses') ?? 0),
+    durationMs: usage === undefined ? undefined : Number(tagOf(usage, 'duration_ms') ?? 0),
+  }
+}
+
+function applyNotification(tasks, notification, at) {
+  let task = notification.toolUseId === undefined ? undefined : tasks.get(notification.toolUseId)
+  if (task === undefined && notification.taskId !== undefined) {
+    for (const existing of tasks.values()) if (existing.id === notification.taskId) { task = existing; break }
+  }
+  if (task === undefined) {
+    task = { id: notification.taskId ?? notification.toolUseId, toolUseId: notification.toolUseId, kind: 'task', label: notification.summary ?? '', background: true, startedAt: at, tokens: 0, toolUses: 0, durationMs: 0 }
+    tasks.set(task.toolUseId ?? task.id, task)
+  }
+  task.status = notification.status
+  task.finishedAt = at
+  if (notification.taskId !== undefined) task.taskId = notification.taskId
+  if (notification.summary !== undefined) task.detail = notification.summary
+  if (notification.result !== undefined) task.result = notification.result
+  if (notification.outputFile !== undefined) task.outputFile = notification.outputFile
+  if (notification.tokens !== undefined) task.tokens = notification.tokens
+  if (notification.toolUses !== undefined) task.toolUses = notification.toolUses
+  if (notification.durationMs !== undefined) task.durationMs = notification.durationMs
+}
+
+/**
+ * Background tasks and subagents reconstructed from a transcript: the launch
+ * tool call opens a task, its result or a queued task notification settles it.
+ * @param {object[]} records
+ * @returns {object[]}
+ */
+export function tasksFromRecords(records) {
+  const tasks = new Map()
+  for (const record of records) {
+    if (record.isSidechain === true) continue
+    const time = ts(record.timestamp)
+    if (record.type === 'assistant') {
+      for (const block of record.message?.content ?? []) {
+        if (block.type !== 'tool_use') continue
+        const input = block.input ?? {}
+        const agent = block.name === 'Agent' || block.name === 'Task'
+        if (!agent && !(block.name === 'Bash' && input.run_in_background === true)) continue
+        if (tasks.has(block.id)) continue
+        tasks.set(block.id, {
+          id: block.id,
+          toolUseId: block.id,
+          kind: agent ? 'agent' : 'bash',
+          label: input.description ?? (agent ? '' : input.command ?? ''),
+          subagentType: input.subagent_type ?? '',
+          background: !agent || input.run_in_background === true,
+          status: 'running',
+          startedAt: time,
+          tokens: 0,
+          toolUses: 0,
+          durationMs: 0,
+        })
+      }
+      continue
+    }
+    if (record.type === 'user') {
+      for (const block of Array.isArray(record.message?.content) ? record.message.content : []) {
+        if (block.type !== 'tool_result') continue
+        const task = tasks.get(block.tool_use_id)
+        if (task === undefined || task.kind !== 'agent' || task.background || task.status !== 'running') continue
+        task.status = block.is_error === true ? 'failed' : 'completed'
+        task.finishedAt = time
+        task.result = resultText(block.content)
+      }
+      continue
+    }
+    if (record.type === 'queue-operation' && record.operation === 'enqueue') {
+      const notification = taskNotificationOf(record.content)
+      if (notification !== undefined) applyNotification(tasks, notification, time)
+      continue
+    }
+    if (record.type === 'system' && record.subtype === 'task_notification') {
+      applyNotification(tasks, {
+        taskId: record.task_id,
+        toolUseId: record.tool_use_id ?? record.task_id,
+        status: record.status ?? 'completed',
+        summary: record.summary,
+        result: record.result === undefined ? undefined : resultText(record.result.content),
+        outputFile: record.output_file,
+        tokens: record.usage?.total_tokens,
+        toolUses: record.usage?.tool_uses,
+        durationMs: record.usage?.duration_ms,
+      }, time)
+    }
+  }
+  return [...tasks.values()]
+}
+
+/** Disk-derived tasks merged with the live child's view; live counters win. */
+export function mergeTasks(disk, live) {
+  const merged = []
+  const seen = new Set()
+  for (const task of disk) {
+    const own = live.find(entry => entry.toolUseId !== undefined && entry.toolUseId === task.toolUseId)
+    if (own === undefined) { merged.push({ ...task }); continue }
+    seen.add(own.id)
+    merged.push({ ...task, ...own, result: own.result ?? task.result, detail: own.detail ?? task.detail, outputFile: own.outputFile ?? task.outputFile })
+  }
+  for (const task of live) if (!seen.has(task.id)) merged.push({ ...task })
+  return merged
+}
+
 /**
  * Live stream-json decoder: turns partial stream events, completed assistant
  * frames, tool results and permission requests into normalized items, keeping

@@ -9,6 +9,7 @@ import { holdAttachments, readDraft, takeAttachments, writeDraft } from './draft
 import { effortLabel, modeLabel } from './labels.js'
 import { IMAGE_TYPES, MAX_IMAGE_BYTES, uploadImage } from './uploads.js'
 import { WorkspaceSelect } from './WorkspaceSelect.jsx'
+import { AgentChips } from './Tasks.jsx'
 import css from './Composer.module.css'
 
 let nextAttachmentKey = 0
@@ -61,7 +62,7 @@ function SendGlyph({ kind }) {
  * left and the model chip plus the round send button right. Both chips carry
  * the CLI's own options; empty means the CLI's own default.
  */
-export function Composer({ t, name, provider, session, isNew, hero, busy, sending, disabledReason, launch, models, workspaces, initialCwd, newNonce, draftKey, onSend, onStop, onLaunch, pickDirectory, addWorkspace }) {
+export function Composer({ t, name, provider, session, isNew, hero, busy, sending, disabledReason, launch, tasks, models, workspaces, initialCwd, newNonce, draftKey, onSend, onStop, onLaunch, pickDirectory, addWorkspace }) {
   const [text, setText] = useState(() => readDraft(draftKey))
   const [cwd, setCwd] = useState(initialCwd ?? '')
   const [modeOpen, setModeOpen] = useState(false)
@@ -288,6 +289,7 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
                   )}
                 />
               )}
+              <AgentChips tasks={tasks ?? []} t={t} />
             </div>
             <div className={css.trailing}>
               <Menu

@@ -117,8 +117,26 @@ export function apply(ctx, config) {
           ok: true,
           session: applyOverlay(result.session, readState()),
           events: result.events,
+          tasks: result.tasks ?? [],
           activeTurns: turns.activeFor(providerId, sessionId),
         }
+      } catch (error) {
+        return failure(error)
+      }
+    },
+    tasks(providerId, sessionId) {
+      try {
+        const provider = registry.get(providerId)
+        return { ok: true, tasks: provider.tasks === undefined ? [] : provider.tasks(sessionId) }
+      } catch (error) {
+        return failure(error)
+      }
+    },
+    taskOutput(providerId, sessionId, taskId) {
+      try {
+        const provider = registry.get(providerId)
+        if (provider.taskOutput === undefined) throw new Error(`agent-cli: ${providerId} has no task output`)
+        return { ok: true, ...provider.taskOutput(sessionId, taskId) }
       } catch (error) {
         return failure(error)
       }
