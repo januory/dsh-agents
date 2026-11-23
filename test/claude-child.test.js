@@ -266,6 +266,20 @@ test('a rename local command settles from its marked result without a user repla
   }
 })
 
+test('a background task keeps its session active after the turn ends', async () => {
+  const s = setup()
+  try {
+    const first = await s.turns.start(s.provider, { cwd: s.cwd, text: 'BG' })
+    const { sessionId } = await waitStatus(s.turns, first.turnId, ['done'])
+    await waitTask(s.provider, sessionId, 'toolu_bg', 'running')
+    assert.ok(s.provider.activeBackground().some(turn => turn.sessionId === sessionId && turn.status === 'running'))
+    await waitTask(s.provider, sessionId, 'toolu_bg', 'completed', 5000, t => t.detail !== undefined)
+    assert.ok(!s.provider.activeBackground().some(turn => turn.sessionId === sessionId))
+  } finally {
+    s.cleanup()
+  }
+})
+
 test('a killed shell settles from its output exit marker without a notification', async () => {
   const s = setup()
   try {

@@ -699,6 +699,18 @@ export function createClaudeProvider(config) {
       return tasksOf(id)
     },
 
+    activeBackground() {
+      const seen = new Set()
+      const out = []
+      for (const entry of children.values()) {
+        const sessionId = entry.sessionId
+        if (sessionId === undefined || entry.dead || seen.has(sessionId)) continue
+        seen.add(sessionId)
+        if (tasksOf(sessionId).some(task => task.status === 'running')) out.push({ sessionId, status: 'running' })
+      }
+      return out
+    },
+
     taskOutput(id, taskId) {
       const task = tasksOf(id).find(entry => entry.id === taskId)
       if (task === undefined) throw new Error(`claude: unknown task ${taskId}`)

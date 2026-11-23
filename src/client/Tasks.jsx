@@ -1,11 +1,11 @@
-import { useEffect, useId, useRef, useState } from 'react'
-import { HoverCard, HoverCardGroup, IconChevronDownOutlineRegular, IconStopFillRegular, MarqueeText, StateDot, TerminalBlock, Tooltip, useHoverMarquee } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { IconChevronDownOutlineRegular, IconStopFillRegular, MarqueeText, StateDot, TerminalBlock, Tooltip, useHoverMarquee } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
-import { taskCounters, taskDotState, taskDuration, taskStatusLabel, terminalLabels, tokenCount } from './labels.js'
+import { taskCounters, taskDotState, taskDuration, taskStatusLabel, terminalLabels } from './labels.js'
 import css from './Tasks.module.css'
 
 const FOLD_LIMIT = 5
-const CHIP_LIMIT = 2
 const KILL_ARM_MS = 3_000
 const KILL_FAILED_MS = 4_000
 
@@ -30,18 +30,6 @@ function kindLabel(task, t) {
   return t('task.task')
 }
 
-function activityOf(task) {
-  return task.progress || task.lastTool || ''
-}
-
-function agentLabel(task, t) {
-  const name = task.subagentType || t('task.agent')
-  const activity = activityOf(task)
-  const label = task.label || ''
-  if (activity !== '' && activity !== label) return `${name}: ${activity}`
-  return label === '' ? name : `${name}: ${label}`
-}
-
 function TaskFacts({ task, now, t }) {
   const counters = taskCounters(task, now, t)
   return (
@@ -61,49 +49,48 @@ function TaskFacts({ task, now, t }) {
 export function AgentChips({ tasks, t }) {
   const agents = tasks.filter(task => task.kind === 'agent' && isRunning(task))
   const now = useNow(agents.length > 0)
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState(null)
+  const rootRef = useRef(null)
+  const panelRef = useRef(null)
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return }
+    const rect = rootRef.current?.getBoundingClientRect()
+    const panel = panelRef.current
+    if (rect === undefined || panel == null) return
+    const left = Math.max(12, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 12))
+    setPos({ left, bottom: window.innerHeight - rect.top + 8 })
+  }, [open])
+  useEffect(() => {
+    if (!open) return
+    const onDown = event => {
+      if (rootRef.current?.contains(event.target) === true || panelRef.current?.contains(event.target) === true) return
+      setOpen(false)
+    }
+    const onKey = event => { if (event.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  useEffect(() => { if (agents.length === 0 && open) setOpen(false) }, [agents.length, open])
   if (agents.length === 0) return null
-  const shown = agents.slice(0, CHIP_LIMIT)
-  const rest = agents.slice(CHIP_LIMIT)
-  const restTokens = rest.reduce((sum, task) => sum + (task.tokens ?? 0), 0)
   return (
-    <HoverCardGroup className={css.chips} as="div">
-      <div className={css.chips} data-task-chips="">
-        {shown.map(task => {
-          const counters = taskCounters(task, now, t)
-          return (
-            <HoverCard
-              key={task.id}
-              grouped
-              variant="preview"
-              content={<TaskFacts task={task} now={now} t={t} />}
-              anchor={(
-                <span className={css.agentChip} data-task-chip={task.id}>
-                  <span className={css.blinkDot} aria-hidden />
-                  <span className={css.agentLabel}>{agentLabel(task, t)}</span>
-                  {counters !== '' && <span className={css.agentCounters}>{counters}</span>}
-                </span>
-              )}
-            />
-          )
-        })}
-        {rest.length > 0 && (
-          <HoverCard
-            grouped
-            variant="preview"
-            content={(
-              <div className={css.facts}>
-                {rest.map(task => <div key={task.id} className={css.factLine}>{agentLabel(task, t)} · {taskCounters(task, now, t)}</div>)}
-              </div>
-            )}
-            anchor={(
-              <span className={css.agentChip} data-task-chip-overflow="">
-                <span className={css.agentCounters}>{t('task.moreAgents', { n: rest.length })}{restTokens > 0 && ` · ${t('task.tokens', { n: tokenCount(restTokens) })}`}</span>
-              </span>
-            )}
-          />
-        )}
-      </div>
-    </HoverCardGroup>
+    <span ref={rootRef} className={css.chips} data-task-chips="">
+      <button type="button" className={css.agentChip} data-task-chip="" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+        <span className={css.blinkDot} aria-hidden />
+        <span className={css.agentLabel}>{t('task.agentCount', { n: agents.length })}</span>
+        <IconChevronDownOutlineRegular size={14} className={cx(css.chevron, open && css.chevronOpen)} />
+      </button>
+      {open && createPortal(
+        <div ref={panelRef} className={css.agentPanel} role="dialog" aria-label={t('task.agentCount', { n: agents.length })} style={{ left: pos?.left ?? 0, bottom: pos?.bottom ?? 0, visibility: pos === null ? 'hidden' : undefined }}>
+          {agents.map(task => <TaskFacts key={task.id} task={task} now={now} t={t} />)}
+        </div>,
+        document.body,
+      )}
+    </span>
   )
 }
 

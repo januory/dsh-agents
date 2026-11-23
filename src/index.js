@@ -111,8 +111,12 @@ export function apply(ctx, config) {
     },
     activeTurns(providerId) {
       try {
-        registry.get(providerId)
-        return { ok: true, turns: turns.activeByProvider(providerId) }
+        const provider = registry.get(providerId)
+        const live = turns.activeByProvider(providerId)
+        const seen = new Set(live.map(turn => turn.sessionId))
+        // A background shell outlives its turn; keep its session marked running.
+        const background = (provider.activeBackground?.() ?? []).filter(turn => !seen.has(turn.sessionId))
+        return { ok: true, turns: [...live, ...background] }
       } catch (error) {
         return failure(error)
       }

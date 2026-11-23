@@ -306,12 +306,42 @@ button.row::after {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  max-width: 280px;
+  max-width: 200px;
   height: 28px;
   padding: 0 6px;
+  border: none;
   border-radius: var(--dsw-radius-sm);
+  background: transparent;
   color: var(--dsw-alias-label-secondary);
+  font: inherit;
   font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .agentChip:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.agentPanel {
+  position: fixed;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 12px;
+  overflow-y: auto;
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-specific-menu);
+  backdrop-filter: var(--dsw-menu-backdrop-filter);
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-elevation-prominent);
+  font-size: 12px;
   line-height: 20px;
 }
 

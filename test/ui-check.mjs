@@ -755,7 +755,11 @@ if (!skipTurns) await step('background-task', async () => {
   await page.locator('[class*="headerJobs"]').filter({ hasText: /个后台任务|background jobs/ }).waitFor({ timeout: 5000 })
   await panel.locator('[data-task-row]').first().waitFor({ timeout: 15_000 })
   await shot('ui-06i-background-running')
+  await page.waitForFunction(k => /运行中|Running/.test(document.querySelector(`[data-row-key="${k}"] [class*="time"]`)?.textContent ?? ''), rowKey, { timeout: 10_000 })
   await page.waitForFunction(() => /已结束|Finished/.test(document.querySelector('[data-tasks-panel]')?.textContent ?? ''), null, { timeout: 90_000 })
+  await page.waitForFunction(() => /BG_DONE/.test(document.querySelector('[class*="dag-transcript"]')?.textContent ?? ''), null, { timeout: 15_000 })
+  const replies = await page.locator('[class*="dag-assistantRow"]').filter({ hasText: 'STARTED' }).count()
+  if (replies !== 1) throw new Error(`background refresh duplicated the assistant reply: ${replies} copies`)
   await openSettled()
   await panel.locator('[data-task-row] button').first().click()
   await panel.locator('[data-terminal]').waitFor({ timeout: 5000 })
@@ -808,7 +812,8 @@ if (!skipTurns) await step('task-stop', async () => {
 if (!skipTurns) await step('subagent-chips', async () => {
   const area = page.locator('[class*="dag-textarea"]')
   const send = page.locator('button[aria-label="Send"], button[aria-label="发送"]')
-  const chips = page.locator('[data-task-chips] [data-task-chip]')
+  const chip = page.locator('[data-task-chips] [data-task-chip]')
+  const agentPanel = page.locator('[class*="dag-agentPanel"]')
   const panel = page.locator('[data-tasks-panel]')
   await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
   await page.waitForTimeout(600)
@@ -820,22 +825,28 @@ if (!skipTurns) await step('subagent-chips', async () => {
   await send.click()
   const allowButtons = page.locator('[class*="dag-approval"][role="alertdialog"]').getByRole('button', { name: /^(Allow|允许)$/ })
   let sawChip = false
-  let chipText = ''
   let chipShot = false
   const t0 = Date.now()
   while (Date.now() - t0 < 150_000) {
     if (await allowButtons.count().catch(() => 0)) await allowButtons.last().click().catch(() => {})
-    const present = await chips.count().catch(() => 0)
+    const present = await chip.count().catch(() => 0)
     if (present) {
       sawChip = true
-      chipText = await chips.first().textContent().catch(() => '')
-      if (!chipShot && /tokens|工具|tool/.test(chipText)) { await shot('ui-06l-subagent-chip'); chipShot = true }
+      const chipText = await chip.first().textContent().catch(() => '')
+      if (!/子代理|agents/.test(chipText)) throw new Error(`subagent chip not a compact subagent chip: ${chipText}`)
+      if (!chipShot) {
+        await chip.first().click().catch(() => {})
+        if (await agentPanel.count().catch(() => 0)) {
+          const detail = await agentPanel.textContent().catch(() => '')
+          if (/Explore/.test(detail) && /tokens|工具|tool/.test(detail)) { await shot('ui-06l-subagent-chip'); chipShot = true }
+        }
+        await page.keyboard.press('Escape').catch(() => {})
+      }
     } else if (sawChip) break
     await page.waitForTimeout(1000)
   }
   if (!sawChip) throw new Error('subagent chip never shown while running')
-  if (!/Explore/.test(chipText)) throw new Error(`subagent chip missing its type: ${chipText}`)
-  if (!chipShot) throw new Error(`subagent chip never showed counters: ${chipText}`)
+  if (!chipShot) throw new Error('expanded background-task panel never showed the Explore type and counters')
   await ensurePanel()
   const agentRow = panel.locator('[data-task-row]').filter({ hasText: 'count probe files' })
   await page.waitForFunction(() => /已结束|Finished/.test(document.querySelector('[data-tasks-panel]')?.textContent ?? ''), null, { timeout: 30_000 })

@@ -599,6 +599,14 @@ export class AgentCliController {
       if (this.disposed || this.transcript.getSnapshot().session?.id !== sessionId) return
       if (answer.ok && Array.isArray(answer.tasks)) {
         this.transcript.update(d => { d.tasks = answer.tasks.filter(task => !d.clearedTasks.includes(task.id)) })
+        // A background shell writes its result to the transcript only when it
+        // settles; re-read the records when the task set changes so the open
+        // conversation keeps updating after the turn ended.
+        const signature = `${sessionId}:${answer.tasks.map(task => `${task.id}:${task.status}`).join('|')}`
+        if (signature !== this.taskSignature) {
+          this.taskSignature = signature
+          void this.#refreshTranscriptEvents()
+        }
       }
     } finally {
       this.taskPolling = false
@@ -606,9 +614,28 @@ export class AgentCliController {
     this.#ensureTaskWatch()
   }
 
+  async #refreshTranscriptEvents() {
+    const state = this.transcript.getSnapshot()
+    if (state.provider === null || state.session?.id === undefined) return
+    // While a turn is live its own poll streams events; re-reading disk here
+    // would duplicate them under different ids. Only refresh once it settled.
+    if (state.turn !== null && isLive(state.turn.status)) return
+    const key = state.key
+    const answer = await this.call('transcript', state.provider, state.session.id)
+    if (this.disposed || this.transcript.getSnapshot().key !== key || !answer.ok) return
+    this.transcript.update(d => {
+      d.events = answer.events
+      d.index = Object.fromEntries(answer.events.map((event, at) => [event.id, at]))
+      d.usage = answer.usage ?? d.usage
+    })
+  }
+
   #ensureTaskWatch() {
     const state = this.transcript.getSnapshot()
-    const wanted = state.session?.id !== undefined && ((state.turn !== null && isLive(state.turn.status)) || state.tasks.some(task => task.status === 'running'))
+    // Keep watching while a foreign session is open: an external session has no
+    // plugin-driven turn, so a subagent/background shell started after opening
+    // would otherwise never be discovered (the chip never appears).
+    const wanted = state.session?.id !== undefined
     if (wanted && this.taskTimer === undefined) {
       this.taskTimer = setInterval(() => {
         if (document.visibilityState === 'visible') void this.refreshTasks()
