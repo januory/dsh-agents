@@ -552,6 +552,12 @@ export class AgentCliController {
     return this.call('taskOutput', state.provider, state.session.id, taskId)
   }
 
+  stopTask(taskId) {
+    const state = this.transcript.getSnapshot()
+    if (state.provider === null || state.session?.id === undefined) return Promise.resolve({ ok: false, error: 'no session' })
+    return this.call('stopTask', state.provider, state.session.id, taskId)
+  }
+
   #stopPolling() {
     if (this.pollTimer !== undefined) clearTimeout(this.pollTimer)
     this.pollTimer = undefined

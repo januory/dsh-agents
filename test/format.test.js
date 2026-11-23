@@ -191,3 +191,11 @@ test('background tasks and subagents are reconstructed from launch calls and que
   assert.equal(merged.length, tasks.length)
   assert.equal(mergeTasks([], live).length, 1)
 })
+
+test('transcript hides the CLI task-notification user feed', () => {
+  const events = parseClaudeRecords([
+    { type: 'user', uuid: 'u1', timestamp: iso(1000), message: { role: 'user', content: '<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>' } },
+    { type: 'user', uuid: 'u2', timestamp: iso(2000), message: { role: 'user', content: 'hello' } },
+  ])
+  assert.deepEqual(events.map(e => e.text), ['hello'])
+})

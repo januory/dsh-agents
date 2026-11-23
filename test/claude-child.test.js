@@ -158,3 +158,39 @@ test('approval on a reused child is delivered to the same process', async () => 
     s.cleanup()
   }
 })
+
+test('interrupt spares background tasks; stop_task kills one', async () => {
+  const s = setup()
+  try {
+    const first = await s.turns.start(s.provider, { cwd: s.cwd, text: 'SLOW' })
+    const { sessionId } = await waitStatus(s.turns, first.turnId, ['done'])
+    await waitTask(s.provider, sessionId, 'toolu_slow', 'running')
+    const hang = await s.turns.start(s.provider, { cwd: s.cwd, sessionId, text: 'HANG' })
+    await waitStatus(s.turns, hang.turnId, ['running'])
+    s.turns.cancel(hang.turnId)
+    await waitStatus(s.turns, hang.turnId, ['cancelled'])
+    await sleep(200)
+    assert.equal(s.provider.tasks(sessionId).find(t => t.toolUseId === 'toolu_slow').status, 'running')
+    assert.equal(await s.provider.stopTask(sessionId, 'toolu_slow'), undefined)
+    const killed = await waitTask(s.provider, sessionId, 'toolu_slow', 'killed')
+    assert.match(killed.detail, /killed/)
+    assert.equal(s.exits(), 0)
+  } finally {
+    s.cleanup()
+  }
+})
+
+test('a killed shell settles from its output exit marker without a notification', async () => {
+  const s = setup()
+  try {
+    const first = await s.turns.start(s.provider, { cwd: s.cwd, text: 'SLOW' })
+    const { sessionId } = await waitStatus(s.turns, first.turnId, ['done'])
+    const running = await waitTask(s.provider, sessionId, 'toolu_slow', 'running')
+    writeFileSync(running.outputFile, 'partial output\n[killed]\n')
+    const settled = await waitTask(s.provider, sessionId, 'toolu_slow', 'killed')
+    assert.equal(settled.status, 'killed')
+    assert.ok(settled.finishedAt >= running.startedAt)
+  } finally {
+    s.cleanup()
+  }
+})

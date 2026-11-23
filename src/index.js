@@ -141,6 +141,15 @@ export function apply(ctx, config) {
         return failure(error)
       }
     },
+    async stopTask(providerId, sessionId, taskId) {
+      try {
+        const provider = registry.get(providerId)
+        if (provider.stopTask === undefined) throw new Error(`agent-cli: ${providerId} cannot stop tasks`)
+        return { ok: true, error: await provider.stopTask(sessionId, taskId) }
+      } catch (error) {
+        return failure(error)
+      }
+    },
     async startTurn(providerId, request) {
       try {
         const provider = registry.get(providerId)

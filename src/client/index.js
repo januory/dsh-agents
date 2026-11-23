@@ -59,6 +59,7 @@ export function apply(ctx) {
     answer: (requestId, decision) => controller.answer(requestId, decision),
     answerQuestion: (requestId, answers) => controller.answerQuestion(requestId, answers),
     loadTaskOutput: taskId => controller.loadTaskOutput(taskId),
+    stopTask: taskId => controller.stopTask(taskId),
     clearTasks: () => controller.clearSettledTasks(),
     saveSettings: providers => controller.saveSettings(providers),
     pickDirectory: () => ctx.uiWorkspace.pickDirectory(),
@@ -115,13 +116,21 @@ export function apply(ctx) {
       ctx.layout.selectPanel(source === 'dsh' ? null : PANEL_ID)
     }
     let lastPanel = ctx.layout.panelInfo.getSnapshot().activePanelId
+    let nullTimer
     const unsubscribePanel = ctx.layout.panelInfo.subscribe(() => {
       const panel = ctx.layout.panelInfo.getSnapshot().activePanelId
-      if (panel === null && lastPanel !== null && controller.view.getSnapshot().source !== 'dsh') controller.setSource('dsh')
+      clearTimeout(nullTimer)
+      // A reconnect or re-registration can blank the active panel for a tick; only a lasting null means the reader left.
+      if (panel === null && lastPanel !== null) {
+        nullTimer = setTimeout(() => {
+          if (ctx.layout.panelInfo.getSnapshot().activePanelId === null && controller.view.getSnapshot().source !== 'dsh') controller.setSource('dsh')
+        }, 300)
+      }
       lastPanel = panel
     })
     void controller.init()
     return () => {
+      clearTimeout(nullTimer)
       unsubscribePanel()
       controller.sourceChanged = () => {}
       for (const dispose of disposers) dispose()

@@ -21,16 +21,6 @@
   font-weight: 500;
 }
 
-.running {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
-  font-variant-numeric: tabular-nums;
-}
-
 .listWrap {
   min-width: 0;
 }
@@ -97,15 +87,21 @@ button.row::after {
 .label {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 13px;
   line-height: 20px;
 }
 
-.counters,
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .duration {
+  flex: none;
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 20px;
@@ -113,15 +109,57 @@ button.row::after {
   white-space: nowrap;
 }
 
-.counters {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* dsh's two-press kill: a 24px glyph target overhanging the 20px line; arming
+   widens into a labeled danger pill that keeps the row at 28px. */
+.stop {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  align-self: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  margin: -2px -4px;
+  padding: 0;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
 }
 
-.duration {
-  flex: none;
+.stop:focus-visible {
+  outline-offset: -2px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+@media (hover: hover) {
+  .stop:hover {
+    color: var(--dsw-alias-state-error-primary);
+  }
+}
+
+.stopArmed {
+  gap: 4px;
+  height: 20px;
+  margin: 0;
+  padding: 0 6px;
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent);
+  border-radius: var(--dsw-radius-sm);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.stopLabel {
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.stopFailed {
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .chevron {

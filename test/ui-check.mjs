@@ -59,7 +59,7 @@ const pickWorkspace = async label => {
 // The floating panel dismisses on outside presses like dsh's, so reopen it after clicking elsewhere.
 const ensurePanel = async () => {
   if (await page.locator('[data-tasks-panel]').count() > 0) return
-  const toggle = page.locator('button[aria-label="后台任务"], button[aria-label="Background tasks"]')
+  const toggle = page.locator('[class*="headerJobs"]')
   await toggle.waitFor({ timeout: 15_000 })
   await toggle.click()
   await page.locator('[data-tasks-panel]').waitFor({ timeout: 5000 })
@@ -452,6 +452,9 @@ if (!skipTurns) await step('image-paste', async () => {
   if (!(await send.isDisabled())) throw new Error('send stayed enabled while an upload had failed')
   await shot('ui-06d-image-upload-error')
   await page.unroute('**/api/agent-cli.upload**')
+  // Rest the pointer off the sidebar so its hover card closes instead of covering the thumbnail rail.
+  await page.mouse.move(720, 200)
+  await page.waitForTimeout(400)
   await items.first().locator('button[aria-label="上传失败，点击重试"], button[aria-label="Upload failed; click to retry"]').click()
   await page.locator('[class*="dag-imageItem"][data-status="ready"]').waitFor({ timeout: 15_000 })
   expectUploadFailure = false
@@ -550,6 +553,40 @@ if (!skipTurns) await step('background-task', async () => {
   if (!/已结束|Finished/.test(await panel.textContent())) throw new Error('completion record lost after reopening the session')
   await openSettled()
   await shot('ui-06k-background-history')
+})
+
+if (!skipTurns) await step('task-stop', async () => {
+  const area = page.locator('[class*="dag-textarea"]')
+  const send = page.locator('button[aria-label="Send"], button[aria-label="发送"]')
+  const panel = page.locator('[data-tasks-panel]')
+  await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
+  await page.waitForTimeout(600)
+  await page.locator('button[aria-label="选择工作区"], button[aria-label="Choose workspace"]').click()
+  await page.locator('[role="menu"] [role="menuitem"], [role="menu"] button').filter({ hasText: 'smoke-claude' }).first().click()
+  await page.waitForTimeout(400)
+  await area.fill('Use the Bash tool with run_in_background: true to run `sleep 30` (description "stop probe"). Then reply exactly STOP_STARTED. Do not wait for the task.')
+  await send.click()
+  const allowButtons = page.locator('[class*="dag-approval"][role="alertdialog"]').getByRole('button', { name: /^(Allow|允许)$/ })
+  // A bare sleep may be auto-allowed, so grant approvals only if the CLI asks while waiting for the task row.
+  const chip = page.locator('[class*="headerJobs"]')
+  const t0 = Date.now()
+  while (Date.now() - t0 < 90_000 && await chip.count() === 0) {
+    if (await allowButtons.count().catch(() => 0)) await allowButtons.last().click().catch(() => {})
+    await page.waitForTimeout(1000)
+  }
+  await ensurePanel()
+  const row = panel.locator('[data-task-row]').filter({ hasText: 'stop probe' })
+  await row.first().waitFor({ timeout: 15_000 })
+  const stop = row.first().locator('[data-kill-state]')
+  await stop.click()
+  await row.first().locator('[data-kill-state="armed"]').waitFor({ timeout: 5000 })
+  await shot('ui-06n-stop-armed')
+  await stop.click()
+  await page.waitForFunction(() => {
+    const el = [...document.querySelectorAll('[data-tasks-panel] [data-task-row]')].find(r => r.textContent.includes('stop probe'))
+    return el !== undefined && el.querySelector('[data-state]')?.getAttribute('data-state') !== 'ongoing'
+  }, null, { timeout: 30_000 })
+  await shot('ui-06o-stop-done')
 })
 
 if (!skipTurns) await step('subagent-chips', async () => {

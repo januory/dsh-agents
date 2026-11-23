@@ -226,7 +226,20 @@ export function createClaudeProvider(config) {
     if (entry === undefined && liveSessions().get(id) === undefined) {
       for (const task of merged) if (task.status === 'running') task.status = 'interrupted'
     }
+    for (const task of merged) if (task.status === 'running') settleFromOutput(task)
     return merged.sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0))
+  }
+
+  // A killed shell can leave an exit marker in its output file without ever emitting a notification.
+  function settleFromOutput(task) {
+    if (task.outputFile === undefined || !existsSync(task.outputFile)) return
+    let tail
+    try { tail = tailText(task.outputFile, 256).text.trimEnd() } catch { return }
+    const exit = /\[exited with code (\d+)\]$/.exec(tail)
+    const killed = /\[killed\]$/.exec(tail) ?? /\[exited with signal [^\]]+\]$/.exec(tail)
+    if (exit === null && killed === null) return
+    task.status = killed !== null ? 'killed' : (Number(exit[1]) === 0 ? 'completed' : 'failed')
+    try { task.finishedAt = statSync(task.outputFile).mtimeMs } catch { task.finishedAt = Date.now() }
   }
 
   function dropEntry(entry) {
@@ -369,16 +382,20 @@ export function createClaudeProvider(config) {
   }
 
   function onToolResult(entry, block, at) {
+    const text = resultText(block.content)
     for (const task of entry.tasks.values()) {
-      if (task.toolUseId !== block.tool_use_id || task.kind !== 'agent' || task.background || task.status !== 'running') continue
+      if (task.toolUseId !== block.tool_use_id) continue
+      const written = /Output is being written to: (\S+)/.exec(text)
+      if (written !== null && task.outputFile === undefined) task.outputFile = written[1].replace(/\.$/, '')
+      if (task.kind !== 'agent' || task.background || task.status !== 'running') continue
       task.status = block.is_error === true ? 'failed' : 'completed'
       task.finishedAt = at
-      task.result = resultText(block.content)
+      task.result = text
     }
   }
 
   function spawnEntry(request, command, args, key) {
-    const entry = { child: undefined, key, meta: undefined, sessionId: request.sessionId, current: undefined, tasks: new Map(), idleTimer: undefined, draining: false, dead: false }
+    const entry = { child: undefined, key, meta: undefined, sessionId: request.sessionId, current: undefined, tasks: new Map(), stops: new Map(), idleTimer: undefined, draining: false, dead: false }
     const respond = (requestId, response) => {
       entry.child.write(`${JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response } })}\n`)
     }
@@ -442,7 +459,14 @@ export function createClaudeProvider(config) {
           onControlRequest(frame)
           return
         }
-        if (frame.type === 'control_response') return
+        if (frame.type === 'control_response') {
+          const stop = entry.stops.get(frame.response?.request_id)
+          if (stop !== undefined) {
+            entry.stops.delete(frame.response.request_id)
+            stop(frame.response?.subtype === 'success' ? undefined : String(frame.response?.error ?? 'stop failed'))
+          }
+          return
+        }
         if (frame.type === 'system') {
           if (frame.subtype === 'init') {
             entry.sessionId = frame.session_id
@@ -579,6 +603,21 @@ export function createClaudeProvider(config) {
       return { text, size, hasEarlier, status: task.status }
     },
 
+    stopTask(id, taskId) {
+      const entry = entryFor(id)
+      if (entry === undefined) { const error = new Error('claude: session has no live child'); error.code = 'not-live'; throw error }
+      const task = findTask(entry, taskId, taskId)
+      const cliId = task?.taskId ?? (task?.id !== task?.toolUseId ? task?.id : undefined)
+      if (cliId === undefined) { const error = new Error(`claude: task ${taskId} has no CLI id yet`); error.code = 'not-ready'; throw error }
+      return new Promise(resolve => {
+        const requestId = `dsh-stop-${randomUUID()}`
+        const timer = setTimeout(() => { entry.stops.delete(requestId); resolve('stop timed out') }, 10_000)
+        timer.unref?.()
+        entry.stops.set(requestId, error => { clearTimeout(timer); resolve(error) })
+        entry.child.write(`${JSON.stringify({ type: 'control_request', request_id: requestId, request: { subtype: 'stop_task', task_id: cliId } })}\n`)
+      })
+    },
+
     async startTurn(request, sink) {
       const command = resolveCommand(commandName)
       if (command === undefined) throw new Error(`claude: "${commandName}" was not found on PATH`)
@@ -623,7 +662,8 @@ export function createClaudeProvider(config) {
         if (request.sessionId === undefined) pendingEntry = entry
         else children.set(request.sessionId, entry)
         entry.current = turn
-        entry.child.write(`${JSON.stringify({ type: 'control_request', request_id: `dsh-init-${turnKey}`, request: { subtype: 'initialize', hooks: {} } })}\n`)
+        // Declaring the affordance makes interrupt spare background tasks; each task gets its own stop_task control.
+        entry.child.write(`${JSON.stringify({ type: 'control_request', request_id: `dsh-init-${turnKey}`, request: { subtype: 'initialize', hooks: {}, capabilities: { perTaskStopAffordance: true } } })}\n`)
       } else {
         clearTimeout(entry.idleTimer)
         entry.current = turn
@@ -642,7 +682,7 @@ export function createClaudeProvider(config) {
           if (turn.settled) return
           turn.cancelled = true
           entry.draining = true
-          entry.child.write(`${JSON.stringify({ type: 'control_request', request_id: `dsh-interrupt-${turnKey}`, request: { subtype: 'interrupt' } })}\n`)
+          entry.child.write(`${JSON.stringify({ type: 'control_request', request_id: `dsh-interrupt-${turnKey}`, request: { subtype: 'interrupt', spare_background_tasks: true } })}\n`)
           turn.killTimer ??= setTimeout(() => entry.child.kill(), 5_000)
           turn.killTimer.unref?.()
         },

@@ -8,9 +8,6 @@ import { TasksPanel } from './Tasks.jsx'
 import { isLive, workspaceOptions } from './controller.js'
 import css from './ConversationPage.module.css'
 
-// dsh docks its session panel only once the end gutter holds 40px clear + 8px edge + 300px panel.
-const DOCK_FRAME_WIDTH = 1576
-
 function useStickToBottom(dep) {
   const ref = useRef(null)
   const stick = useRef(true)
@@ -33,7 +30,7 @@ function useStickToBottom(dep) {
  * composer below. It is a root main panel, so it carries no dsh session.
  */
 export function ConversationPage(props) {
-  const { t, useAgentView, useAgentTranscript, useAgentProviders, useAgentSessions, useAgentSettings, useAgentModels, send, cancel, answer, answerQuestion, loadTaskOutput, clearTasks, showEarlier, setSource, setLaunch, pickDirectory, addWorkspace } = props
+  const { t, useAgentView, useAgentTranscript, useAgentProviders, useAgentSessions, useAgentSettings, useAgentModels, send, cancel, answer, answerQuestion, loadTaskOutput, clearTasks, stopTask, showEarlier, setSource, setLaunch, pickDirectory, addWorkspace } = props
   const source = useAgentView(s => s.source)
   const transcript = useAgentTranscript(s => s)
   const providers = useAgentProviders(s => s.list)
@@ -50,8 +47,7 @@ export function ConversationPage(props) {
   const workspaces = useMemo(() => workspaceOptions(bucket), [bucket?.list, bucket?.workspaces])
   const last = transcript.events[transcript.events.length - 1]
   const scrollRef = useStickToBottom(`${transcript.key}:${transcript.events.length}:${last?.text?.length ?? 0}:${last?.output?.length ?? 0}`)
-  const [panelOpen, setPanelOpen] = useState(true)
-  const [docked, setDocked] = useState(false)
+  const [overlay, setOverlay] = useState(null)
   const frameRef = useRef(null)
   const seatRef = useRef(null)
   const panelRef = useRef(null)
@@ -59,34 +55,40 @@ export function ConversationPage(props) {
   const tasks = transcript.tasks ?? []
   const runningTasks = tasks.filter(task => task.status === 'running').length
   const blank = isNew && transcript.events.length === 0 && !transcript.sending && transcript.error === null
+  const sessionKey = `${source}:${session?.id ?? 'new'}`
+  const panelShown = tasks.length > 0 && overlay === sessionKey
+  const togglePanel = () => setOverlay(current => current === sessionKey ? null : sessionKey)
 
   useEffect(() => {
     const frame = frameRef.current
     const seat = seatRef.current
     if (frame === null || seat === null) return
     const measure = () => {
-      setDocked(frame.clientWidth >= DOCK_FRAME_WIDTH)
       frame.style.setProperty('--dag-composer-height', `${seat.getBoundingClientRect().height}px`)
+      const toggle = toggleRef.current
+      if (toggle === null) return
+      const left = toggle.getBoundingClientRect().left - frame.getBoundingClientRect().left
+      frame.style.setProperty('--dag-panel-left', `${Math.max(8, Math.min(left, frame.clientWidth - 368))}px`)
     }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(frame)
     observer.observe(seat)
     return () => observer.disconnect()
-  }, [blank, source])
+  }, [blank, source, overlay, transcript.key])
 
   useEffect(() => {
-    if (!panelOpen || docked) return
+    if (overlay === null) return
     const onPointerDown = event => {
       const target = event.target
       if (!(target instanceof Element)) return
       if (panelRef.current?.contains(target) === true || toggleRef.current?.contains(target) === true || target.closest('[role="menu"]') !== null) return
-      setPanelOpen(false)
+      setOverlay(null)
     }
     const onKeyDown = event => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
       if (document.querySelector('[role="dialog"], [role="menu"]') !== null) return
-      setPanelOpen(false)
+      setOverlay(null)
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
@@ -94,7 +96,7 @@ export function ConversationPage(props) {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [panelOpen, docked])
+  }, [overlay])
 
   if (source === 'dsh') return null
 
@@ -177,28 +179,22 @@ export function ConversationPage(props) {
           )}
         </div>
         {tasks.length > 0 && (
-          <button type="button" className={css.headerJobs} aria-expanded={panelOpen} aria-label={t('task.headerCount', { n: tasks.length })} onClick={() => setPanelOpen(v => !v)}>
-            {runningTasks > 0
-              ? (
-                <svg className={css.jobsSpinner} viewBox="0 0 16 16" width="12" height="12" aria-hidden>
-                  <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="2" />
-                  <path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              )
-              : <IconFlatListOutlineRegular size={12} />}
-            <span>{t('task.headerCount', { n: tasks.length })}</span>
-          </button>
-        )}
-        {tasks.length > 0 && (
-          <Tooltip label={t(panelOpen ? 'task.hidePanel' : 'task.showPanel')} side="bottom" delayMs={400}>
-            <button type="button" ref={toggleRef} className={css.panelToggle} aria-expanded={panelOpen} aria-label={t('task.title')} onClick={() => setPanelOpen(v => !v)}>
-              <IconFlatListOutlineRegular size={16} />
-              {runningTasks > 0 && <span className={css.toggleDot} aria-hidden />}
+          <Tooltip label={t(panelShown ? 'task.hidePanel' : 'task.showPanel')} side="bottom" delayMs={400}>
+            <button type="button" ref={toggleRef} className={css.headerJobs} aria-expanded={panelShown} aria-label={t('task.headerCount', { n: tasks.length })} onClick={togglePanel}>
+              {runningTasks > 0
+                ? (
+                  <svg className={css.jobsSpinner} viewBox="0 0 16 16" width="12" height="12" aria-hidden>
+                    <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="2" />
+                    <path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )
+                : <IconFlatListOutlineRegular size={12} />}
+              <span>{t('task.headerCount', { n: tasks.length })}</span>
             </button>
           </Tooltip>
         )}
       </header>
-      <div className={css.frame} ref={frameRef} data-docked={docked ? 'true' : 'false'}>
+      <div className={css.frame} ref={frameRef}>
         <div className={css.body} ref={scrollRef}>
           <div className={css.view}>
             {transcript.loading ? <div className={css.center}>{t('page.loading')}</div>
@@ -223,9 +219,9 @@ export function ConversationPage(props) {
             {composer}
           </div>
         </div>
-        {tasks.length > 0 && panelOpen && (
-          <aside className={cx(css.panel, docked ? css.docked : css.overlay)} ref={panelRef} aria-label={t('task.title')}>
-            <TasksPanel tasks={tasks} t={t} loadOutput={loadTaskOutput} onClear={clearTasks} />
+        {panelShown && (
+          <aside className={css.panel} ref={panelRef} aria-label={t('task.title')}>
+            <TasksPanel key={sessionKey} tasks={tasks} t={t} loadOutput={loadTaskOutput} onClear={clearTasks} stopTask={stopTask} />
           </aside>
         )}
       </div>

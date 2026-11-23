@@ -85,7 +85,8 @@ export function parseClaudeRecords(records) {
       if (record.isMeta !== true && (typeof content === 'string' || Array.isArray(content))) {
         const text = typeof content === 'string' ? content : userTextOf(record.message)
         const imageCount = Array.isArray(content) ? content.filter(b => b.type === 'image').length : 0
-        if (text.trim() !== '' || imageCount > 0) put({ id: record.uuid, type: 'user', ts: time, text, ...(imageCount > 0 ? { imageCount } : {}) })
+        // The CLI feeds completion notifications to the model as user text; the task panel owns that display.
+        if (taskNotificationOf(text) === undefined && (text.trim() !== '' || imageCount > 0)) put({ id: record.uuid, type: 'user', ts: time, text, ...(imageCount > 0 ? { imageCount } : {}) })
       }
       if (Array.isArray(content)) {
         for (const block of content) {
@@ -258,10 +259,14 @@ export function tasksFromRecords(records) {
       for (const block of Array.isArray(record.message?.content) ? record.message.content : []) {
         if (block.type !== 'tool_result') continue
         const task = tasks.get(block.tool_use_id)
-        if (task === undefined || task.kind !== 'agent' || task.background || task.status !== 'running') continue
+        if (task === undefined) continue
+        const text = resultText(block.content)
+        const written = /Output is being written to: (\S+)/.exec(text)
+        if (written !== null && task.outputFile === undefined) task.outputFile = written[1].replace(/\.$/, '')
+        if (task.kind !== 'agent' || task.background || task.status !== 'running') continue
         task.status = block.is_error === true ? 'failed' : 'completed'
         task.finishedAt = time
-        task.result = resultText(block.content)
+        task.result = text
       }
       continue
     }
