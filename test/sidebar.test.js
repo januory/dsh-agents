@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  SIDEBAR_MIN, addTab, clampWidth, closeTab, defaultWidth, focusTab, openSession,
+  SIDEBAR_MIN, addTab, clampWidth, closeTab, defaultWidth, focusTab, openKind, openSession,
   sanitizeSession, seedSession, setExpanded, setMode, setWidth, toggleExpanded, toggleFullscreen,
 } from '../src/client/sidebar.js'
 
@@ -66,6 +66,21 @@ test('tabs focus, add, and close without ever leaving an empty pane', () => {
   assert.equal(state.bySession.k.tabs.length, 1)
   assert.equal(state.bySession.k.tabs[0].kind, 'guide')
   assert.equal(state.bySession.k.activeTab, state.bySession.k.tabs[0].id)
+})
+
+test('the start doorway opens a type in the guide tab place', () => {
+  let state = openSession(empty, 'k', 1000)
+  state = openKind(state, 'k', 'mcp')
+  assert.equal(state.bySession.k.tabs.length, 1)
+  assert.equal(state.bySession.k.tabs[0].kind, 'mcp')
+  const mcpId = state.bySession.k.activeTab
+  assert.equal(state.bySession.k.tabs[0].id, mcpId)
+  state = addTab(state, 'k', 'guide')
+  const guideId = state.bySession.k.activeTab
+  assert.equal(state.bySession.k.tabs.length, 2)
+  state = openKind(state, 'k', 'mcp')
+  assert.equal(state.bySession.k.activeTab, mcpId)
+  assert.ok(!state.bySession.k.tabs.some(t => t.id === guideId))
 })
 
 test('fullscreen toggles between push and fullscreen', () => {

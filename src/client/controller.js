@@ -436,6 +436,11 @@ export class AgentCliController {
     return answer
   }
 
+  async mcp(provider, sessionId, cwd, op, payload) {
+    if (sessionId === undefined) return { ok: false, error: 'no-session' }
+    return this.call('mcpSession', provider, sessionId, cwd, op, payload)
+  }
+
   async answer(requestId, decision) {
     if (this.turnId === undefined) return
     await this.call('answerApproval', this.turnId, requestId, decision)

@@ -125,11 +125,14 @@
   min-width: 0;
   overflow: hidden;
   line-height: 1.4;
+}
+
+.closable .tabTitle {
   mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
 }
 
-.tabActive .tabTitle,
-.tab:focus-within .tabTitle {
+.closable.tabActive .tabTitle,
+.closable:focus-within .tabTitle {
   mask-image: linear-gradient(to right, black calc(100% - 30px), transparent calc(100% - 14px));
 }
 
@@ -212,7 +215,7 @@
     background: var(--dsw-alias-interactive-bg-hover);
   }
 
-  .tab:hover .tabTitle {
+  .closable:hover .tabTitle {
     mask-image: linear-gradient(to right, black calc(100% - 30px), transparent calc(100% - 14px));
   }
 
@@ -259,6 +262,70 @@
   display: flex;
   margin-bottom: 16px;
   color: var(--dsw-specific-guide-hero);
+}
+
+.entryCell {
+  width: 380px;
+  max-width: 100%;
+}
+
+.entry {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  box-sizing: border-box;
+  width: 380px;
+  max-width: 100%;
+  min-height: 56px;
+  padding: 14px 20px;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  text-align: left;
+  background: var(--dsw-alias-bg-layer-1);
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-xl);
+  cursor: pointer;
+}
+
+.entryIcon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.entryText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.entryTitle {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.entryDescription {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (hover: hover) {
+  .entry:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .unavailable {

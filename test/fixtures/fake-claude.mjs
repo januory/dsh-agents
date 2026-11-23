@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
@@ -44,6 +44,29 @@ function notificationXml({ taskId, toolUseId, status, summary, outputFile, resul
 }
 
 const pendingTasks = new Map()
+
+const mcpConfigFile = join(home, '.claude.json')
+const mcpLog = process.env.FAKE_MCP_LOG
+const mcpSeed = { alpha: { type: 'stdio', command: 'echo', args: ['hi'] }, beta: { type: 'http', url: 'https://beta.example' } }
+const mcpTools = { alpha: [{ name: 'read_file', annotations: { readOnly: true } }, { name: 'write_file', annotations: { readOnly: false } }], beta: [] }
+let mcpServers = (() => { try { return JSON.parse(readFileSync(mcpConfigFile, 'utf8')).mcpServers ?? mcpSeed } catch { return mcpSeed } })()
+const mcpDisabled = new Set()
+const mcpReconnected = new Set()
+const mcpStatusOf = name => mcpDisabled.has(name) ? 'disabled' : mcpReconnected.has(name) ? 'connected' : name === 'beta' ? 'failed' : 'connected'
+function persistMcp() {
+  let config = {}
+  try { config = JSON.parse(readFileSync(mcpConfigFile, 'utf8')) } catch {}
+  config.mcpServers = mcpServers
+  writeFileSync(mcpConfigFile, JSON.stringify(config))
+}
+const mcpRows = () => Object.keys(mcpServers).map(name => ({
+  name,
+  status: mcpStatusOf(name),
+  source: 'user',
+  ...(mcpStatusOf(name) === 'failed' ? { error: 'connection refused' } : {}),
+  tools: mcpTools[name] ?? [],
+}))
+persistMcp()
 
 function settleTask(taskId, status) {
   const pending = pendingTasks.get(taskId)
@@ -100,6 +123,24 @@ rl.on('line', line => {
       }
       settleTask(req.task_id, 'killed')
       out({ type: 'control_response', response: { subtype: 'success', request_id: frame.request_id, response: {} } })
+    } else if (req.subtype === 'mcp_status') {
+      out({ type: 'control_response', response: { subtype: 'success', request_id: frame.request_id, response: { mcpServers: mcpRows() } } })
+    } else if (req.subtype === 'mcp_reconnect') {
+      mcpReconnected.add(req.serverName)
+      mcpDisabled.delete(req.serverName)
+      out({ type: 'control_response', response: { subtype: 'success', request_id: frame.request_id, response: {} } })
+    } else if (req.subtype === 'mcp_toggle') {
+      if (req.enabled === true) mcpDisabled.delete(req.serverName); else mcpDisabled.add(req.serverName)
+      out({ type: 'control_response', response: { subtype: 'success', request_id: frame.request_id, response: {} } })
+    } else if (req.subtype === 'mcp_set_servers') {
+      const next = req.servers ?? {}
+      const added = Object.keys(next).filter(name => !(name in mcpServers))
+      const removed = Object.keys(mcpServers).filter(name => !(name in next))
+      mcpServers = { ...next }
+      for (const name of removed) { mcpDisabled.delete(name); mcpReconnected.delete(name) }
+      persistMcp()
+      if (mcpLog) appendFileSync(mcpLog, `${JSON.stringify({ servers: next, hint: req.hint })}\n`)
+      out({ type: 'control_response', response: { subtype: 'success', request_id: frame.request_id, response: { added, removed, errors: [] } } })
     } else {
       out({ type: 'control_response', response: { subtype: 'error', request_id: frame.request_id, error: 'unsupported' } })
     }

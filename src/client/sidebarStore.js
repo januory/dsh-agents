@@ -1,6 +1,6 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
-  addTab, closeTab, focusTab, openSession, sanitizeSession, setExpanded, setMode, setWidth, toggleExpanded, toggleFullscreen,
+  addTab, closeTab, focusTab, openKind, openSession, sanitizeSession, setExpanded, setMode, setWidth, toggleExpanded, toggleFullscreen,
 } from './sidebar.js'
 
 export function createSidebarStore() {
@@ -22,6 +22,7 @@ export function createSidebarStore() {
     setWidth: (key, px, viewport) => apply(setWidth, key, px, viewport),
     focusTab: (key, id) => apply(focusTab, key, id),
     addTab: (key, kind) => apply(addTab, key, kind),
+    openKind: (key, kind) => apply(openKind, key, kind),
     closeTab: (key, id) => apply(closeTab, key, id),
   }
   return store

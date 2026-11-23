@@ -192,6 +192,23 @@ export function apply(ctx, config) {
         return failure(error)
       }
     },
+    async mcpSession(providerId, sessionId, cwd, op, payload) {
+      try {
+        const provider = registry.get(providerId)
+        const manage = name => {
+          if (provider[name] === undefined) { const error = new Error(`agent-cli: ${providerId} cannot manage MCP`); error.code = 'unsupported'; throw error }
+          return provider[name]
+        }
+        if (op === 'status') return { ok: true, ...(await manage('mcpStatus')(sessionId, cwd)) }
+        if (op === 'reconnect') return { ok: true, result: await manage('mcpReconnect')(sessionId, cwd, payload?.name) }
+        if (op === 'toggle') return { ok: true, result: await manage('mcpToggle')(sessionId, cwd, payload?.name, payload?.enabled === true) }
+        if (op === 'add') return { ok: true, result: await manage('mcpAdd')(sessionId, cwd, payload?.name, payload?.cfg, payload?.scope) }
+        if (op === 'remove') return { ok: true, result: await manage('mcpRemove')(sessionId, cwd, payload?.name, payload?.scope) }
+        return { ok: false, error: `agent-cli: unknown mcp op "${op}"` }
+      } catch (error) {
+        return { ...failure(error), ...(typeof error?.code === 'string' ? { code: error.code } : {}) }
+      }
+    },
     async startTurn(providerId, request) {
       try {
         const provider = registry.get(providerId)

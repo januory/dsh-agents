@@ -5,6 +5,7 @@ export const SIDEBAR_KEY_STEP = 20
 
 export const TAB_TYPES = [
   { kind: 'guide', titleKey: 'sidebar.tab.guide', icon: 'compass' },
+  { kind: 'mcp', titleKey: 'sidebar.tab.mcp', icon: 'mcp', descriptionKey: 'mcp.guideDescription' },
 ]
 
 export function clampWidth(px, viewport) {
@@ -81,6 +82,26 @@ export function focusTab(state, key, id) {
 export function addTab(state, key, kind = 'guide') {
   return patch(state, key, s => {
     const tab = { id: newId(), kind }
+    return { ...s, tabs: [...s.tabs, tab], activeTab: tab.id }
+  })
+}
+
+// The Start page is a doorway: picking a type opens it in the guide tab's place.
+export function openKind(state, key, kind) {
+  return patch(state, key, s => {
+    const activeIndex = s.tabs.findIndex(t => t.id === s.activeTab)
+    const activeIsGuide = activeIndex !== -1 && s.tabs[activeIndex].kind === 'guide'
+    const existing = s.tabs.find(t => t.kind === kind)
+    if (existing !== undefined) {
+      const tabs = activeIsGuide ? s.tabs.filter(t => t.id !== s.activeTab) : s.tabs
+      return { ...s, tabs, activeTab: existing.id }
+    }
+    const tab = { id: newId(), kind }
+    if (activeIsGuide) {
+      const tabs = s.tabs.slice()
+      tabs[activeIndex] = tab
+      return { ...s, tabs, activeTab: tab.id }
+    }
     return { ...s, tabs: [...s.tabs, tab], activeTab: tab.id }
   })
 }

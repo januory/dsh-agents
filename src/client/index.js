@@ -71,6 +71,7 @@ export function apply(ctx) {
     stopTask: taskId => controller.stopTask(taskId),
     compact: (provider, sessionId) => controller.compact(provider, sessionId),
     goal: (provider, sessionId, op, objective) => controller.goal(provider, sessionId, op, objective),
+    mcp: (provider, sessionId, cwd, op, payload) => controller.mcp(provider, sessionId, cwd, op, payload),
     clearTasks: () => controller.clearSettledTasks(),
     sidebar: controller.sidebar.actions,
     saveSettings: providers => controller.saveSettings(providers),

@@ -67,6 +67,20 @@
  * @property {(sessionId: string, objective: string, sink: TurnSink) => Promise<TurnHandle>} [setGoal]
  * @property {(sessionId: string) => Promise<{ goal: object | null }>} [getGoal]
  * @property {(sessionId: string) => Promise<{ cleared: boolean }>} [clearGoal]
+ * @property {(sessionId: string, cwd: string) => Promise<{ servers: McpServer[] }>} [mcpStatus]
+ * @property {(sessionId: string, cwd: string, name: string) => Promise<unknown>} [mcpReconnect]
+ * @property {(sessionId: string, cwd: string, name: string, enabled: boolean) => Promise<unknown>} [mcpToggle]
+ * @property {(sessionId: string, cwd: string, name: string, cfg: object, scope: string) => Promise<unknown>} [mcpAdd]
+ * @property {(sessionId: string, cwd: string, name: string, scope: string) => Promise<unknown>} [mcpRemove]
+ */
+
+/**
+ * @typedef {object} McpServer
+ * @property {string} name
+ * @property {'connected'|'failed'|'needs-auth'|'pending'|'disabled'} status
+ * @property {string} [source]
+ * @property {string} [error]
+ * @property {{ name: string, readOnly: boolean }[]} tools
  */
 
 const REQUIRED_METHODS = ['detect', 'listSessions', 'readTranscript', 'startTurn']

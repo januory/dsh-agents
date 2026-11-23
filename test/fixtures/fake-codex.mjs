@@ -107,6 +107,16 @@ rl.on('line', line => {
     case 'thread/turns/list':
       reply(id, { data: [{ items: threads.get(params.threadId)?.items ?? [] }], nextCursor: null })
       return
+    case 'mcpServerStatus/list':
+      reply(id, {
+        data: [
+          { name: 'alpha', runtimeStatus: 'connected', tools: { read_file: { name: 'read_file', annotations: { readOnlyHint: true } }, write_file: { name: 'write_file', annotations: { readOnlyHint: false } } } },
+          { name: 'beta', runtimeStatus: 'authenticationRequired', tools: {} },
+          { name: 'gamma', runtimeStatus: 'disabled', tools: {} },
+        ],
+        nextCursor: null,
+      })
+      return
     default:
       if (id !== undefined) out({ id, error: { code: -32601, message: `unknown method ${method}` } })
   }

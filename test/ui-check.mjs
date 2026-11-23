@@ -1049,6 +1049,91 @@ await step('sidebar-persist', async () => {
   await shot('ui-10e-sidebar-persist')
 })
 
+const openMcpTab = async () => {
+  await expandSidebar()
+  if (await ourSidebar().locator('[data-mcp-view]').count() > 0) return
+  await ourSidebar().locator('[data-sidebar-right-add]').click()
+  await page.locator('[role="menu"] [role="menuitem"], [role="menu"] button').filter({ hasText: 'MCP' }).first().click()
+  await ourSidebar().locator('[data-mcp-view]').waitFor({ timeout: 15_000 })
+}
+const waitMcpList = () => page.waitForFunction(() => {
+  const root = document.querySelector('[data-dag-sidebar-right] [data-mcp-view="list"]')
+  return root !== null && (root.querySelector('[data-mcp-server]') !== null || root.querySelector('[data-mcp-empty]') !== null)
+}, null, { timeout: 30_000 })
+
+await step('sidebar-start-chip', async () => {
+  await page.evaluate(() => localStorage.removeItem('dsh.agents.sidebar.v1'))
+  await ensureConversation()
+  await expandSidebar()
+  await ourSidebar().locator('[data-sidebar-guide]').waitFor({ timeout: 5000 })
+  const tabs = ourSidebar().locator('[data-sidebar-right-tab]')
+  if (await tabs.count() !== 1) throw new Error(`expected a sole start tab, saw ${await tabs.count()}`)
+  const title = await tabs.first().textContent()
+  if (!/开始|Start/.test(title ?? '')) throw new Error(`start tab misnamed: ${title}`)
+  if (await tabs.first().locator('button').count() !== 0) throw new Error('sole start tab must have no close button')
+  await shot('ui-10f-start-chip')
+  const entry = ourSidebar().locator('[data-sidebar-guide-entry="mcp"]')
+  if (await entry.count() !== 1) throw new Error('start page missing the MCP door')
+  await entry.click()
+  await ourSidebar().locator('[data-mcp-view]').waitFor({ timeout: 15_000 })
+  if (await ourSidebar().locator('[data-sidebar-guide]').count() !== 0) throw new Error('picking the MCP door should replace the start tab')
+})
+
+await step('mcp-tab', async () => {
+  await ensureConversation()
+  await openMcpTab()
+  await ourSidebar().locator('[data-mcp-view="list"]').waitFor({ timeout: 20_000 })
+  await waitMcpList()
+  console.log('  mcp servers listed:', await ourSidebar().locator('[data-mcp-server]').count())
+  await ourSidebar().locator('[data-mcp-refresh]').waitFor({ timeout: 5000 })
+  await shot('ui-12-mcp-list')
+})
+
+await step('mcp-detail', async () => {
+  await ensureConversation()
+  await openMcpTab()
+  await ourSidebar().locator('[data-mcp-view="list"]').waitFor({ timeout: 20_000 })
+  await waitMcpList()
+  if (await ourSidebar().locator('[data-mcp-server]').count() === 0) { console.log('  no MCP servers; detail skipped'); return }
+  await ourSidebar().locator('[data-mcp-server]').first().click()
+  await ourSidebar().locator('[data-mcp-view="detail"]').waitFor({ timeout: 5000 })
+  await ourSidebar().locator('[data-mcp-detail-name]').waitFor({ timeout: 5000 })
+  for (const sel of ['[data-mcp-reconnect]', '[data-mcp-toggle]', '[data-mcp-remove]']) await ourSidebar().locator(sel).waitFor({ timeout: 5000 })
+  await shot('ui-12b-mcp-detail')
+})
+
+await step('mcp-add-form', async () => {
+  await ensureConversation()
+  await openMcpTab()
+  await ourSidebar().locator('[data-mcp-view="list"]').waitFor({ timeout: 20_000 })
+  await waitMcpList()
+  await ourSidebar().locator('[data-mcp-add]').click()
+  await ourSidebar().locator('[data-mcp-view="add"]').waitFor({ timeout: 5000 })
+  for (const sel of ['[data-mcp-field="name"]', '[data-mcp-transport="stdio"]', '[data-mcp-field="command"]', '[data-mcp-scope="local"]', '[data-mcp-submit]']) await ourSidebar().locator(sel).waitFor({ timeout: 5000 })
+  await shot('ui-12c-mcp-add')
+})
+
+await step('mcp-codex-readonly', async () => {
+  await page.goto(url, { waitUntil: 'domcontentloaded' })
+  await switcher().waitFor({ timeout: 60_000 })
+  await page.waitForTimeout(1200)
+  for (let i = 0; i < 3; i++) {
+    if (await page.locator('[role="dialog"]').count() === 0) break
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+  }
+  await pickWorkspace('Codex 工作区|Codex workspace')
+  await page.locator('[data-row-key^="agent:codex:"]').first().waitFor({ timeout: 30_000 })
+  await page.locator('[data-row-key^="agent:codex:"]').first().click()
+  await page.locator('[class*="dag-transcript"]').waitFor({ timeout: 30_000 })
+  await page.waitForTimeout(600)
+  await openMcpTab()
+  await ourSidebar().locator('[data-mcp-view="list"]').waitFor({ timeout: 20_000 })
+  await waitMcpList()
+  if (await ourSidebar().locator('[data-mcp-add]').count() !== 0) throw new Error('codex MCP must be read-only: Add server button present')
+  await shot('ui-12d-mcp-codex')
+})
+
 await step('stale-selection', async () => {
   await page.evaluate(() => localStorage.setItem('dsh.agents.view.v1', JSON.stringify({ source: 'claude', selected: { claude: 'definitely-missing-session-xyz' }, query: '', expanded: {}, showHidden: false, groupBy: 'project', launch: {} })))
   await page.goto(url, { waitUntil: 'domcontentloaded' })

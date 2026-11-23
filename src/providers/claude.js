@@ -479,7 +479,7 @@ export function createClaudeProvider(config) {
           const stop = entry.stops.get(frame.response?.request_id)
           if (stop !== undefined) {
             entry.stops.delete(frame.response.request_id)
-            stop(frame.response?.subtype === 'success' ? undefined : String(frame.response?.error ?? 'stop failed'))
+            stop(frame.response?.subtype === 'success' ? undefined : String(frame.response?.error ?? 'request failed'), frame.response?.response)
           }
           return
         }
@@ -582,6 +582,74 @@ export function createClaudeProvider(config) {
     entry.child.write(`${JSON.stringify({ type: 'user', session_id: sessionId ?? '', message: { role: 'user', content }, parent_tool_use_id: null })}\n`)
   }
 
+  function mcpRequest(entry, request) {
+    return new Promise((resolve, reject) => {
+      const requestId = `dsh-mcp-${randomUUID()}`
+      const timer = setTimeout(() => { entry.stops.delete(requestId); reject(new Error('claude: MCP request timed out')) }, 30_000)
+      timer.unref?.()
+      entry.stops.set(requestId, (error, response) => { clearTimeout(timer); if (error !== undefined) reject(new Error(error)); else resolve(response) })
+      entry.child.write(`${JSON.stringify({ type: 'control_request', request_id: requestId, request })}\n`)
+    })
+  }
+
+  // MCP config is cwd/user/project scoped, not session specific: a query child
+  // needs only the cwd, so it never resumes and never clashes with a live turn.
+  async function withMcpChild(sessionId, cwd, fn) {
+    const live = entryFor(sessionId)
+    if (live !== undefined) return fn(live)
+    const command = resolveCommand(commandName)
+    if (command === undefined) throw new Error(`claude: "${commandName}" was not found on PATH`)
+    const entry = { child: undefined, stops: new Map(), dead: false }
+    entry.child = spawnLines({
+      command,
+      args: ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose'],
+      cwd,
+      onLine: line => {
+        const frame = parseJsonLine(line)
+        if (frame?.type !== 'control_response') return
+        const cb = entry.stops.get(frame.response?.request_id)
+        if (cb === undefined) return
+        entry.stops.delete(frame.response.request_id)
+        cb(frame.response?.subtype === 'success' ? undefined : String(frame.response?.error ?? 'request failed'), frame.response?.response)
+      },
+      onExit: () => { entry.dead = true; if (entry.child?.pid !== undefined) ownPids.delete(entry.child.pid) },
+      onError: () => {},
+    })
+    if (entry.child.pid !== undefined) ownPids.add(entry.child.pid)
+    try {
+      await mcpRequest(entry, { subtype: 'initialize', hooks: {} })
+      return await fn(entry)
+    } finally {
+      entry.child.endInput()
+      entry.child.kill()
+    }
+  }
+
+  function mcpConfigPath() {
+    for (const candidate of [join(home, '.claude.json'), join(homedir(), '.claude.json')]) if (existsSync(candidate)) return candidate
+    return join(homedir(), '.claude.json')
+  }
+
+  function readMcpScope(cwd, scope) {
+    if (scope === 'project') {
+      try { return JSON.parse(readFileSync(join(cwd, '.mcp.json'), 'utf8')).mcpServers ?? {} } catch { return {} }
+    }
+    try {
+      const config = JSON.parse(readFileSync(mcpConfigPath(), 'utf8'))
+      return scope === 'local' ? (config.projects?.[cwd]?.mcpServers ?? {}) : (config.mcpServers ?? {})
+    } catch { return {} }
+  }
+
+  function normalizeMcpServers(rows) {
+    return (Array.isArray(rows) ? rows : []).map(row => ({
+      name: row.name,
+      status: row.status ?? 'pending',
+      source: row.source,
+      error: row.error,
+      tools: (Array.isArray(row.tools) ? row.tools : []).map(tool => ({ name: tool.name, readOnly: tool.annotations?.readOnly === true })),
+    }))
+  }
+
   return {
     id: 'claude',
     label: 'Claude Code',
@@ -652,6 +720,30 @@ export function createClaudeProvider(config) {
         entry.stops.set(requestId, error => { clearTimeout(timer); resolve(error) })
         entry.child.write(`${JSON.stringify({ type: 'control_request', request_id: requestId, request: { subtype: 'stop_task', task_id: cliId } })}\n`)
       })
+    },
+
+    async mcpStatus(id, cwd) {
+      return withMcpChild(id, cwd, async entry => ({ servers: normalizeMcpServers((await mcpRequest(entry, { subtype: 'mcp_status' }))?.mcpServers) }))
+    },
+
+    async mcpReconnect(id, cwd, name) {
+      return withMcpChild(id, cwd, entry => mcpRequest(entry, { subtype: 'mcp_reconnect', serverName: name }))
+    },
+
+    async mcpToggle(id, cwd, name, enabled) {
+      return withMcpChild(id, cwd, entry => mcpRequest(entry, { subtype: 'mcp_toggle', serverName: name, enabled }))
+    },
+
+    // mcp_set_servers replaces the scope's operator set, so send current ± change.
+    async mcpAdd(id, cwd, name, cfg, scope) {
+      const servers = { ...readMcpScope(cwd, scope), [name]: cfg }
+      return withMcpChild(id, cwd, entry => mcpRequest(entry, { subtype: 'mcp_set_servers', servers, hint: scope }))
+    },
+
+    async mcpRemove(id, cwd, name, scope) {
+      const servers = { ...readMcpScope(cwd, scope) }
+      delete servers[name]
+      return withMcpChild(id, cwd, entry => mcpRequest(entry, { subtype: 'mcp_set_servers', servers, hint: scope }))
     },
 
     async startTurn(request, sink) {

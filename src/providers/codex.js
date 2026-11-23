@@ -201,6 +201,24 @@ export function createCodexProvider(config) {
     ownThreads.add(threadId)
   }
 
+  function normalizeCodexMcpServer(row) {
+    const status = { notStarted: 'pending', starting: 'pending', connected: 'connected', authenticationRequired: 'needs-auth', failed: 'failed', cancelled: 'failed', disabled: 'disabled' }[row.runtimeStatus] ?? 'pending'
+    const tools = row.tools && typeof row.tools === 'object' ? Object.values(row.tools) : []
+    return {
+      name: row.name,
+      status,
+      source: undefined,
+      error: undefined,
+      tools: tools.map(tool => ({ name: tool.name, readOnly: tool.annotations?.readOnly === true || tool.annotations?.readOnlyHint === true })),
+    }
+  }
+
+  function unsupportedMcp() {
+    const error = new Error('codex: MCP management is read-only')
+    error.code = 'unsupported'
+    return error
+  }
+
   // Compaction and goal-set run as server-side turns; track them like a turn but
   // without approvals or steering, which neither command accepts.
   async function commandTurn(threadId, sink, start) {
@@ -549,6 +567,24 @@ export function createCodexProvider(config) {
       await ensureLoaded(rpc, sessionId)
       return rpc.request('thread/goal/clear', { threadId: sessionId, origin: 'user' })
     },
+
+    async mcpStatus(sessionId) {
+      const rpc = await ensure()
+      await ensureLoaded(rpc, sessionId)
+      const rows = []
+      let cursor
+      do {
+        const page = await rpc.request('mcpServerStatus/list', { threadId: sessionId, detail: 'full', ...(cursor !== undefined ? { cursor } : {}) })
+        rows.push(...(Array.isArray(page?.data) ? page.data : []))
+        cursor = page?.nextCursor ?? undefined
+      } while (cursor !== undefined)
+      return { servers: rows.map(normalizeCodexMcpServer) }
+    },
+
+    mcpReconnect() { throw unsupportedMcp() },
+    mcpToggle() { throw unsupportedMcp() },
+    mcpAdd() { throw unsupportedMcp() },
+    mcpRemove() { throw unsupportedMcp() },
 
     dispose() {
       for (const router of routers.values()) router.fail('codex: provider unloaded')
