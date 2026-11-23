@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { capture, parseJsonLine, resolveCommand, spawnLines } from './cli.js'
 import { headTail, tailRecords, tailText } from './files.js'
-import { ClaudeLive, mergeTasks, parseClaudeRecords, resultText, summarizeClaude, tasksFromRecords } from './claude-format.js'
+import { ClaudeLive, claudeUsageOf, mergeTasks, parseClaudeRecords, resultText, summarizeClaude, tasksFromRecords } from './claude-format.js'
 import { messageOf } from '../remote.js'
 import { readUpload } from '../uploads.js'
 
@@ -90,6 +90,20 @@ export function createClaudeProvider(config) {
   const pathIndex = new Map()
   const ownPids = new Set()
   const children = new Map()
+  // Context capacity is only known from the CLI's own result report; guessing it misreads custom models.
+  // Keyed by model so every session on that model shares the reported window; the host persists reports
+  // so reopened sessions keep their meter across harness restarts.
+  const modelCapacity = new Map(Object.entries(config.capacity ?? {}))
+  // The CLI compacts against CLAUDE_CODE_MAX_CONTEXT_TOKENS when set, while its result report falls back
+  // to a catalog default for models it does not know; the configured window is the trustworthy capacity.
+  const configuredWindow = (() => {
+    const fromEnv = Number(process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS)
+    if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv
+    try {
+      const value = Number(JSON.parse(readFileSync(join(home, 'settings.json'), 'utf8'))?.env?.CLAUDE_CODE_MAX_CONTEXT_TOKENS)
+      return Number.isFinite(value) && value > 0 ? value : undefined
+    } catch { return undefined }
+  })()
   let pendingEntry
 
   function transcriptFiles() {
@@ -486,6 +500,14 @@ export function createClaudeProvider(config) {
             for (const block of frame.message?.content ?? []) if (block.type === 'tool_use') { task.toolUses += 1; task.lastTool = block.name }
           }
         }
+        if (frame.type === 'result' && frame.modelUsage !== undefined) {
+          const model = entry.meta?.model ?? Object.keys(frame.modelUsage)[0]
+          const info = frame.modelUsage[model]
+          if (model !== undefined && info?.contextWindow > 0 && modelCapacity.get(model) !== info.contextWindow) {
+            modelCapacity.set(model, info.contextWindow)
+            config.onCapacity?.(model, info.contextWindow)
+          }
+        }
         const turn = entry.current
         // An interrupt's trailing frames belong to the aborted turn, even if
         // the user already started the next one on the same child.
@@ -588,7 +610,7 @@ export function createClaudeProvider(config) {
       const live = liveSessions().get(id)
       const summary = summarizeFile({ path, id }, live === undefined ? undefined : { live })
       const { records, hasEarlier } = tailRecords(path, MAX_TRANSCRIPT_BYTES)
-      return { session: { ...summary, hasEarlier }, events: parseClaudeRecords(records), tasks: tasksOf(id) }
+      return { session: { ...summary, hasEarlier }, events: parseClaudeRecords(records), tasks: tasksOf(id), usage: claudeUsageOf(records, configuredWindow ?? modelCapacity.get(summary.model)) }
     },
 
     tasks(id) {

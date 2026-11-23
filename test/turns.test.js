@@ -175,7 +175,7 @@ test('store overlays titles and hidden flags without touching native data', () =
   const dir = mkdtempSync(join(tmpdir(), 'dsh-agents-store-'))
   const path = join(dir, 'state.json')
   try {
-    assert.deepEqual(readState(path), { settings: { providers: {} }, sessions: {}, workspaces: {} })
+    assert.deepEqual(readState(path), { settings: { providers: {} }, sessions: {}, workspaces: {}, capacity: {} })
     const state = readState(path)
     state.sessions['claude:s1'] = { title: 'mine', hidden: true }
     state.settings.providers.claude = { permissionMode: 'plan', model: 'opus' }

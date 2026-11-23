@@ -16,7 +16,7 @@ export function statePath() {
   return join(harnessHome(), STORE_DIR, 'state.json')
 }
 
-const EMPTY = { settings: { providers: {} }, sessions: {}, workspaces: {} }
+const EMPTY = { settings: { providers: {} }, sessions: {}, workspaces: {}, capacity: {} }
 
 function record(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -30,7 +30,18 @@ export function readState(path = statePath()) {
     settings: { providers: record(record(root.settings).providers) },
     sessions: record(root.sessions),
     workspaces: record(root.workspaces),
+    capacity: record(root.capacity),
   }
+}
+
+/** Context windows a provider reported per model, kept across harness restarts. */
+export function reportedCapacity(state, provider) {
+  const value = record(state.capacity[provider])
+  const out = {}
+  for (const [model, window] of Object.entries(value)) {
+    if (Number.isFinite(window) && window > 0) out[model] = window
+  }
+  return out
 }
 
 export function writeState(next, path = statePath()) {

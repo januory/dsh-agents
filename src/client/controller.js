@@ -55,6 +55,7 @@ export class AgentCliController {
       newNonce: 0,
       tasks: [],
       clearedTasks: [],
+      usage: null,
     })
     this.settings = createSnapshotStore({ providers: {}, loaded: false, error: null })
     this.sourceChanged = () => {}
@@ -269,6 +270,7 @@ export class AgentCliController {
         newNonce,
         tasks: [],
         clearedTasks: [],
+        usage: null,
       })
       this.#ensureTaskWatch()
       return
@@ -290,6 +292,7 @@ export class AgentCliController {
       newNonce,
       tasks: [],
       clearedTasks: [],
+      usage: null,
     })
     this.#ensureTaskWatch()
     const answer = await this.call('transcript', provider, sessionId)
@@ -309,6 +312,7 @@ export class AgentCliController {
       d.events = events
       d.index = Object.fromEntries(events.map((event, i) => [event.id, i]))
       d.tasks = Array.isArray(answer.tasks) ? answer.tasks : []
+      d.usage = answer.usage ?? null
     })
     if (active !== undefined) this.#attach(active.turnId, 0, active.startedAt)
     this.#ensureTaskWatch()
@@ -502,6 +506,16 @@ export class AgentCliController {
     this.turnId = undefined
     void this.refreshSessions(current.provider ?? this.view.getSnapshot().source)
     void this.refreshTasks()
+    void this.#refreshUsage()
+  }
+
+  async #refreshUsage() {
+    const state = this.transcript.getSnapshot()
+    if (state.provider === null || state.session?.id === undefined) return
+    const key = state.key
+    const answer = await this.call('transcript', state.provider, state.session.id)
+    if (this.disposed || this.transcript.getSnapshot().key !== key || !answer.ok) return
+    this.transcript.update(d => { d.usage = answer.usage ?? null })
   }
 
   // Background tasks keep running after the turn's result; watch them while

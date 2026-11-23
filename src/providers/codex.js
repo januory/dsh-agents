@@ -1,8 +1,9 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { capture, resolveCommand } from './cli.js'
+import { tailText } from './files.js'
 import { JsonRpcClient } from './jsonrpc.js'
 import { codexItemToEvent, codexThreadSummary } from './codex-format.js'
 import { messageOf } from '../remote.js'
@@ -32,7 +33,8 @@ function launchParams(options) {
  * Codex provider over one shared `codex app-server` (JSON-RPC stdio). Threads
  * are listed/read through the server's own API and turns run through
  * thread/resume + turn/start, so both legacy and paginated histories render
- * the same way. No instructions, config or personality overrides are sent.
+ * the same way. No instructions, config or personality overrides are sent;
+ * turns request reasoning summaries so the thinking row can render.
  * @param {{ command: string, home: string }} config
  * @returns {import('../registry.js').AgentCliProvider}
  */
@@ -42,8 +44,40 @@ export function createCodexProvider(config) {
   let client
   let starting
   const routers = new Map()
+  const threadUsage = new Map()
   const processItems = new Map()
   const ownThreads = new Set()
+
+  // Reopened threads have no live token report; the rollout's last token_count carries the same buckets.
+  function diskUsage(id) {
+    const root = join(home ?? join(homedir(), '.codex'), 'sessions')
+    if (!existsSync(root)) return undefined
+    let file
+    for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(`-${id}.jsonl`)) {
+        file = join(entry.parentPath ?? entry.path, entry.name)
+        break
+      }
+    }
+    if (file === undefined) return undefined
+    let info
+    for (const line of tailText(file, 256 * 1024).text.split('\n')) {
+      let record
+      try { record = JSON.parse(line) } catch { continue }
+      const payload = record.type === 'event_msg' ? record.payload : record
+      if (payload?.type === 'token_count' && payload.info !== undefined) info = payload.info
+    }
+    const total = info?.total_token_usage
+    if (total === undefined) return undefined
+    return {
+      inputTokens: Math.max(0, (total.input_tokens ?? 0) - (total.cached_input_tokens ?? 0)),
+      outputTokens: total.output_tokens ?? 0,
+      cacheReadTokens: total.cached_input_tokens ?? 0,
+      cacheWriteTokens: total.cache_write_input_tokens ?? 0,
+      contextTokens: info.last_token_usage?.total_tokens ?? 0,
+      capacity: info.model_context_window ?? null,
+    }
+  }
 
   // The app-server reports threads it holds loaded as active; for threads this
   // plugin drove that is our own turn, not another process holding the session.
@@ -206,7 +240,9 @@ export function createCodexProvider(config) {
         const event = codexItemToEvent(item, base, true)
         if (event !== undefined) events.push(event)
       }
-      return { session: summary(thread), events }
+      const counted = threadUsage.get(id) ?? diskUsage(id)
+      const usage = counted === undefined ? null : { ...counted, turns: entries.filter(item => item.type === 'userMessage').length, steps: entries.filter(item => item.type === 'agentMessage').length }
+      return { session: summary(thread), events, usage }
     },
 
     async startTurn(request, sink) {
@@ -340,8 +376,19 @@ export function createCodexProvider(config) {
               return
             }
             case 'thread/tokenUsage/updated': {
-              const last = params.tokenUsage?.last ?? params.tokenUsage?.total
+              const report = params.tokenUsage
+              const last = report?.last ?? report?.total
               if (last) usage = { inputTokens: last.inputTokens, outputTokens: last.outputTokens }
+              if (report !== undefined) {
+                threadUsage.set(params.threadId ?? threadId, {
+                  inputTokens: Math.max(0, (report.total?.inputTokens ?? 0) - (report.total?.cachedInputTokens ?? 0)),
+                  outputTokens: report.total?.outputTokens ?? 0,
+                  cacheReadTokens: report.total?.cachedInputTokens ?? 0,
+                  cacheWriteTokens: report.total?.cacheWriteInputTokens ?? 0,
+                  contextTokens: last?.totalTokens ?? 0,
+                  capacity: report.modelContextWindow ?? null,
+                })
+              }
               return
             }
             case 'error':
@@ -364,7 +411,8 @@ export function createCodexProvider(config) {
       }
       let steerCount = 0
       try {
-        const response = await rpc.request('turn/start', { threadId, input: userInput(request), clientUserMessageId: `${turnKey}:user`, effort: request.options?.effort || null }, { timeoutMs: 60_000 })
+        // app-server streams no reasoning summaries unless a turn asks; display-only override.
+        const response = await rpc.request('turn/start', { threadId, input: userInput(request), clientUserMessageId: `${turnKey}:user`, effort: request.options?.effort || null, summary: 'auto' }, { timeoutMs: 60_000 })
         turnId = response.turn?.id
       } catch (error) {
         finish({ status: 'error', error: messageOf(error) })

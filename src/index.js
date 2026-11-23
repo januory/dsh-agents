@@ -5,7 +5,7 @@ import { INVOCATIONS, NAMESPACE, PACKAGE, REGISTRY_KEY, failure } from './remote
 import { mediaTypeOf, readUpload, saveUpload, uploadPath } from './uploads.js'
 import { AgentCliRegistry } from './registry.js'
 import { TurnManager } from './turns.js'
-import { applyOverlay, overlayKey, providerSettings, providerWorkspaces, readState, writeState } from './store.js'
+import { applyOverlay, overlayKey, providerSettings, providerWorkspaces, readState, reportedCapacity, writeState } from './store.js'
 import { createClaudeProvider } from './providers/claude.js'
 import { createCodexProvider } from './providers/codex.js'
 
@@ -45,7 +45,15 @@ export function apply(ctx, config) {
       provider.dispose?.()
     }
   }, `agent-cli: ${provider.id} provider`)
-  if (config.claude.enabled) mount(createClaudeProvider(config.claude))
+  if (config.claude.enabled) mount(createClaudeProvider({
+    ...config.claude,
+    capacity: reportedCapacity(readState(), 'claude'),
+    onCapacity: (model, window) => {
+      const state = readState()
+      state.capacity = { ...state.capacity, claude: { ...state.capacity.claude, [model]: window } }
+      writeState(state)
+    },
+  }))
   if (config.codex.enabled) mount(createCodexProvider(config.codex))
 
   const detected = new Map()
@@ -118,6 +126,7 @@ export function apply(ctx, config) {
           session: applyOverlay(result.session, readState()),
           events: result.events,
           tasks: result.tasks ?? [],
+          usage: result.usage ?? null,
           activeTurns: turns.activeFor(providerId, sessionId),
         }
       } catch (error) {

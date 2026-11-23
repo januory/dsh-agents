@@ -18,14 +18,16 @@ function setup() {
   mkdirSync(cwd, { recursive: true })
   const log = join(dir, 'spawns.log')
   writeFileSync(log, '')
-  const saved = { config: process.env.CLAUDE_CONFIG_DIR, log: process.env.FAKE_SPAWN_LOG }
+  const saved = { config: process.env.CLAUDE_CONFIG_DIR, log: process.env.FAKE_SPAWN_LOG, window: process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS }
   process.env.CLAUDE_CONFIG_DIR = home
   process.env.FAKE_SPAWN_LOG = log
-  const provider = createClaudeProvider({ command: fixture, home })
+  delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
+  const learned = []
+  const provider = createClaudeProvider({ command: fixture, home, onCapacity: (model, window) => learned.push([model, window]) })
   const turns = new TurnManager({ retentionMs: 60_000 })
   const lines = () => readFileSync(log, 'utf8').split('\n').filter(Boolean)
   return {
-    dir, home, cwd, provider, turns,
+    dir, home, cwd, provider, turns, learned,
     spawns: () => lines().filter(l => l.startsWith('spawn')).length,
     exits: () => lines().filter(l => l.startsWith('exit')).length,
     cleanup() {
@@ -33,6 +35,7 @@ function setup() {
       provider.dispose()
       if (saved.config === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = saved.config
       if (saved.log === undefined) delete process.env.FAKE_SPAWN_LOG; else process.env.FAKE_SPAWN_LOG = saved.log
+      if (saved.window === undefined) delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS; else process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = saved.window
       rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
     },
   }
@@ -79,6 +82,19 @@ test('one child serves successive turns; a background task outlives the turn and
     assert.equal(output.text, 'BG_DONE\n')
     const disk = s.provider.readTranscript ? await s.provider.readTranscript(sessionId) : undefined
     assert.equal(disk.tasks.find(t => t.toolUseId === 'toolu_bg').status, 'completed')
+    assert.equal(disk.usage.turns, 1)
+    assert.equal(disk.usage.inputTokens, 10)
+    assert.equal(disk.usage.contextTokens, 135)
+    assert.equal(disk.usage.capacity, 200_000)
+    assert.ok(disk.usage.steps >= 1)
+    assert.deepEqual(s.learned, [['fake-model', 200_000]])
+    const seeded = createClaudeProvider({ command: fixture, home: s.home, capacity: { 'fake-model': 200_000 } })
+    assert.equal((await seeded.readTranscript(sessionId)).usage.capacity, 200_000)
+    seeded.dispose()
+    writeFileSync(join(s.home, 'settings.json'), JSON.stringify({ env: { CLAUDE_CODE_MAX_CONTEXT_TOKENS: 500_000 } }))
+    const configured = createClaudeProvider({ command: fixture, home: s.home, capacity: { 'fake-model': 200_000 } })
+    assert.equal((await configured.readTranscript(sessionId)).usage.capacity, 500_000)
+    configured.dispose()
     const second = await s.turns.start(s.provider, { cwd: s.cwd, sessionId, text: 'again' })
     const secondDone = await waitStatus(s.turns, second.turnId, ['done'])
     assert.ok(secondDone.events.some(e => e.type === 'assistant' && e.text === 'echo:again'))

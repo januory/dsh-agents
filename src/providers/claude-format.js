@@ -292,6 +292,40 @@ export function tasksFromRecords(records) {
   return [...tasks.values()]
 }
 
+/**
+ * Session token totals and context occupancy from the transcript's own usage
+ * blocks; the last assistant usage is what still sits in the model's context.
+ * @param {object[]} records
+ * @param {number|undefined} capacity
+ * @returns {{inputTokens: number, outputTokens: number, cacheReadTokens: number, cacheWriteTokens: number, contextTokens: number, capacity: number|null, turns: number, steps: number}}
+ */
+export function claudeUsageOf(records, capacity) {
+  let inputTokens = 0
+  let outputTokens = 0
+  let cacheReadTokens = 0
+  let cacheWriteTokens = 0
+  let contextTokens = 0
+  let turns = 0
+  let steps = 0
+  for (const record of records) {
+    if (record.isSidechain === true) continue
+    if (record.type === 'user' && record.isMeta !== true) {
+      const content = record.message?.content
+      if (typeof content === 'string' || (Array.isArray(content) && content.some(block => block.type === 'text'))) turns += 1
+    }
+    if (record.type !== 'assistant') continue
+    steps += 1
+    const usage = record.message?.usage
+    if (usage === undefined) continue
+    inputTokens += usage.input_tokens ?? 0
+    outputTokens += usage.output_tokens ?? 0
+    cacheReadTokens += usage.cache_read_input_tokens ?? 0
+    cacheWriteTokens += usage.cache_creation_input_tokens ?? 0
+    contextTokens = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.output_tokens ?? 0)
+  }
+  return { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, contextTokens, capacity: capacity ?? null, turns, steps }
+}
+
 /** Disk-derived tasks merged with the live child's view; live counters win. */
 export function mergeTasks(disk, live) {
   const merged = []

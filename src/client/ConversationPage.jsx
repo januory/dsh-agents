@@ -128,6 +128,7 @@ export function ConversationPage(props) {
       disabledReason={disabledReason}
       launch={launch}
       tasks={transcript.tasks ?? []}
+      usage={transcript.usage ?? null}
       models={models}
       workspaces={workspaces}
       initialCwd={transcript.cwd}

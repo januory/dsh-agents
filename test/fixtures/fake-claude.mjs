@@ -27,8 +27,9 @@ let hanging = false
 
 function assistant(content) {
   const uuid = randomUUID()
-  record({ type: 'assistant', uuid, message: { role: 'assistant', model, content } })
-  out({ type: 'assistant', session_id: sessionId, uuid, message: { role: 'assistant', model, content } })
+  const usage = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 100, cache_creation_input_tokens: 20 }
+  record({ type: 'assistant', uuid, message: { role: 'assistant', model, content, usage } })
+  out({ type: 'assistant', session_id: sessionId, uuid, message: { role: 'assistant', model, content, usage } })
 }
 function toolResult(id, text) {
   const content = [{ type: 'tool_result', tool_use_id: id, content: [{ type: 'text', text }] }]
@@ -36,7 +37,7 @@ function toolResult(id, text) {
   out({ type: 'user', session_id: sessionId, message: { role: 'user', content } })
 }
 function result(text, isError = false) {
-  out({ type: 'result', subtype: isError ? 'error_during_execution' : 'success', is_error: isError, result: text, duration_ms: 5, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, session_id: sessionId })
+  out({ type: 'result', subtype: isError ? 'error_during_execution' : 'success', is_error: isError, result: text, duration_ms: 5, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, modelUsage: { [model]: { contextWindow: 200000 } }, session_id: sessionId })
 }
 function notificationXml({ taskId, toolUseId, status, summary, outputFile, result: text, usage }) {
   return `<task-notification>\n<task-id>${taskId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<output-file>${outputFile ?? ''}</output-file>\n<status>${status}</status>\n<summary>${summary}</summary>${text === undefined ? '' : `\n<result>${text}</result>`}${usage === undefined ? '' : `\n<usage>\n<subagent_tokens>${usage.total_tokens}</subagent_tokens>\n<tool_uses>${usage.tool_uses}</tool_uses>\n<duration_ms>${usage.duration_ms}</duration_ms>\n</usage>`}\n</task-notification>`

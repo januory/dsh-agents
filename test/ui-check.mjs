@@ -290,6 +290,8 @@ if (!skipTurns) await step('new-session-turn', async () => {
   if (status.color !== 'rgb(217, 119, 87)' || status.divider === '0px' || !/用时|elapsed/.test(status.text)) throw new Error(`live status wrong: ${JSON.stringify(status)}`)
   if (Math.abs(status.dividerLeft - status.textLeft) > 1 || Math.abs(status.statusLeft - status.textLeft) > 1 || status.height !== 28) throw new Error(`status not on the transcript axis: ${JSON.stringify(status)}`)
   await page.locator('[class*="dag-assistantRow"]').filter({ hasText: 'OK' }).first().waitFor({ timeout: 90_000 })
+  await page.locator('[data-usage]').filter({ hasText: /轮|turns/ }).waitFor({ timeout: 15_000 })
+  if (await page.locator('[data-usage] svg').count() === 0) throw new Error('context meter ring missing from the composer footer')
   await page.waitForTimeout(1500)
   await shot('ui-05-turn-done')
 })

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { providerWorkspaces, readState, writeState } from '../src/store.js'
+import { providerWorkspaces, readState, reportedCapacity, writeState } from '../src/store.js'
 
 test('readState tolerates a state file without workspaces', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-agents-store-'))
@@ -13,6 +13,18 @@ test('readState tolerates a state file without workspaces', () => {
   assert.deepEqual(state.workspaces, {})
   assert.deepEqual(providerWorkspaces(state, 'claude'), [])
   assert.equal(state.settings.providers.claude.model, 'x')
+})
+
+test('reportedCapacity keeps positive windows per model across a state round trip', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-agents-store-'))
+  const file = join(dir, 'state.json')
+  writeFileSync(file, JSON.stringify({ capacity: { claude: { m: 200000, zero: 0, text: 'x' } } }))
+  const state = readState(file)
+  assert.deepEqual(reportedCapacity(state, 'claude'), { m: 200000 })
+  assert.deepEqual(reportedCapacity(state, 'codex'), {})
+  state.capacity = { ...state.capacity, claude: { ...state.capacity.claude, m2: 1000 } }
+  writeState(state, file)
+  assert.deepEqual(reportedCapacity(readState(file), 'claude'), { m: 200000, m2: 1000 })
 })
 
 test('providerWorkspaces keeps order, drops duplicates and malformed entries', () => {

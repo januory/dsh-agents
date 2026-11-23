@@ -7,6 +7,7 @@ import {
 import { cx } from './cx.js'
 import { holdAttachments, readDraft, takeAttachments, writeDraft } from './drafts.js'
 import { effortLabel, modeDesc, modeLabel } from './labels.js'
+import { ComposerStats } from './ComposerStats.jsx'
 import { IMAGE_TYPES, MAX_IMAGE_BYTES, uploadImage } from './uploads.js'
 import { WorkspaceSelect } from './WorkspaceSelect.jsx'
 import { AgentChips } from './Tasks.jsx'
@@ -62,7 +63,7 @@ function SendGlyph({ kind }) {
  * left and the model chip plus the round send button right. Both chips carry
  * the CLI's own options; empty means the CLI's own default.
  */
-export function Composer({ t, name, provider, session, isNew, hero, busy, sending, disabledReason, launch, tasks, models, workspaces, initialCwd, newNonce, draftKey, onSend, onStop, onLaunch, pickDirectory, addWorkspace }) {
+export function Composer({ t, name, provider, session, isNew, hero, busy, sending, disabledReason, launch, tasks, usage, models, workspaces, initialCwd, newNonce, draftKey, onSend, onStop, onLaunch, pickDirectory, addWorkspace }) {
   const [text, setText] = useState(() => readDraft(draftKey))
   const [cwd, setCwd] = useState(initialCwd ?? '')
   const [modeOpen, setModeOpen] = useState(false)
@@ -337,7 +338,9 @@ export function Composer({ t, name, provider, session, isNew, hero, busy, sendin
             </div>
           </div>
         </div>
-        <div className={cx(css.hint, notice !== null && css.hintError)} role={notice !== null ? 'alert' : undefined}>{notice ?? t('composer.hint')}</div>
+        {notice !== null
+          ? <div className={cx(css.hint, css.hintError)} role="alert">{notice}</div>
+          : <ComposerStats usage={usage} t={t} />}
       </div>
       {preview !== null && (
         <ImageLightbox
