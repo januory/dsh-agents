@@ -117,6 +117,18 @@ rl.on('line', line => {
   if (frame.type !== 'user') return
   const content = frame.message?.content ?? []
   const text = textOf(content)
+  if (text.startsWith('/rename')) {
+    const name = text.slice('/rename'.length).trim() || 'renamed'
+    const uuid = randomUUID()
+    const stdout = `<local-command-stdout>Session renamed to: ${name}</local-command-stdout>`
+    record({ type: 'user', uuid: randomUUID(), isMeta: true, message: { role: 'user', content: '<local-command-caveat>run directly in Claude Code</local-command-caveat>' } })
+    record({ type: 'user', uuid: randomUUID(), message: { role: 'user', content: `<command-name>/rename</command-name>\n<command-args>${name}</command-args>` } })
+    record({ type: 'system', subtype: 'local_command', uuid, content: stdout, commandRun: { command: 'rename', args: name } })
+    out({ type: 'system', subtype: 'session_title_changed', title: name, session_id: sessionId })
+    out({ type: 'assistant', session_id: sessionId, uuid, message: { role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text: `Session renamed to: ${name}` }], usage: { input_tokens: 0, output_tokens: 0 } }, local_command_source: stdout, local_command_run: { command: 'rename', args: name } })
+    out({ type: 'result', subtype: 'success', is_error: false, result: `Session renamed to: ${name}`, local_command: 'rename', num_turns: 0, duration_ms: 5, total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0 }, modelUsage: { [model]: { contextWindow: 200000 } }, session_id: sessionId })
+    return
+  }
   record({ type: 'user', uuid: randomUUID(), message: { role: 'user', content } })
   out({ type: 'user', session_id: sessionId, message: { role: 'user', content }, isReplay: true })
   if (text === 'BG' || text === 'AGENT' || text === 'SLOW') { background(text); return }

@@ -23,6 +23,18 @@ test('claude records fold text, thinking, tool calls and results', () => {
   assert.equal(events[3].text, 'done')
 })
 
+test('claude local-command output renders from its system record, not the plumbing', () => {
+  const events = parseClaudeRecords([
+    { type: 'user', uuid: 'c', isMeta: true, timestamp: iso(1000), message: { content: '<local-command-caveat>run directly</local-command-caveat>' } },
+    { type: 'user', uuid: 'n', timestamp: iso(1100), message: { content: '<command-name>/rename</command-name>\n<command-args>x</command-args>' } },
+    { type: 'system', subtype: 'local_command', uuid: 'echo', timestamp: iso(1200), content: '/rename', commandRun: {} },
+    { type: 'system', subtype: 'local_command', uuid: 'out', timestamp: iso(1300), content: '<local-command-stdout>Session renamed to: x</local-command-stdout>', commandRun: { command: 'rename', args: 'x' } },
+  ])
+  assert.deepEqual(events.map(e => e.type), ['assistant'])
+  assert.equal(events[0].id, 'out')
+  assert.equal(events[0].text, 'Session renamed to: x')
+})
+
 test('claude images echo on the live user event and count in history', () => {
   const emitted = []
   const live = new ClaudeLive({ emit: e => emitted.push(e), setSession: () => {}, finish: () => {} }, { turnKey: 'k' })

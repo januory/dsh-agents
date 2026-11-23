@@ -544,6 +544,8 @@ export function createClaudeProvider(config) {
           turn.usage.outputTokens += frameUsage.output_tokens ?? 0
           turn.usage.costUsd += frame.total_cost_usd ?? 0
           turn.usage.durationMs += frame.duration_ms ?? 0
+          // Local commands (/rename, /model, …) answer with a marked result but never replay the written frame.
+          if (frame.local_command !== undefined) turn.queued.shift()
           if (frame.is_error === true || turn.queued.length === 0) {
             settleTurn(entry, {
               status: frame.is_error === true ? 'error' : 'done',

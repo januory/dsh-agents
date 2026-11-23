@@ -124,6 +124,10 @@ export function parseClaudeRecords(records) {
     if (record.type === 'system' && record.subtype === 'compact_boundary') {
       put({ id: record.uuid, type: 'turn', ts: time, phase: 'end', reason: 'compact' })
     }
+    if (record.type === 'system' && record.subtype === 'local_command' && String(record.content ?? '').includes('<local-command-stdout>')) {
+      const text = String(record.content).replace(/<\/?local-command-stdout>/g, '').trim()
+      if (text !== '') put({ id: record.uuid, type: 'assistant', ts: time, text, done: true })
+    }
   }
   return events
 }

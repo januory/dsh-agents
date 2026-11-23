@@ -246,6 +246,26 @@ test('a string-content command replay consumes the queued message so the result 
   }
 })
 
+test('a rename local command settles from its marked result without a user replay', async () => {
+  const s = setup()
+  try {
+    const first = await s.turns.start(s.provider, { cwd: s.cwd, text: 'hello' })
+    const { sessionId } = await waitStatus(s.turns, first.turnId, ['done'])
+    const rename = await s.turns.start(s.provider, { cwd: s.cwd, sessionId, text: '/rename renamed-session' })
+    const done = await waitStatus(s.turns, rename.turnId, ['done'])
+    assert.ok(done.events.some(e => e.type === 'assistant' && e.text === 'Session renamed to: renamed-session'))
+    const disk = await s.provider.readTranscript(sessionId)
+    assert.ok(disk.events.some(e => e.type === 'assistant' && e.text === 'Session renamed to: renamed-session'))
+    assert.ok(!disk.events.some(e => e.type === 'user' && String(e.text).includes('<command-name>')))
+    assert.ok(!disk.events.some(e => e.type === 'user' && String(e.text).includes('local-command-caveat')))
+    const after = await s.turns.start(s.provider, { cwd: s.cwd, sessionId, text: 'again' })
+    await waitStatus(s.turns, after.turnId, ['done'])
+    assert.equal(s.spawns(), 1)
+  } finally {
+    s.cleanup()
+  }
+})
+
 test('a killed shell settles from its output exit marker without a notification', async () => {
   const s = setup()
   try {
