@@ -930,6 +930,42 @@ if (!skipTurns) await step('reply-order', async () => {
   await shot('ui-06o-reply-order')
 })
 
+if (!skipTurns) await step('edit-diff', async () => {
+  const dir = join(root, 'tmp', 'smoke-claude')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'ui-edit.txt'), 'alpha\nbeta\ngamma\n')
+  const area = page.locator('[class*="dag-textarea"]')
+  const send = page.locator('button[aria-label="Send"], button[aria-label="发送"]')
+  await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
+  await page.waitForTimeout(600)
+  await page.locator('button[aria-label="选择工作区"], button[aria-label="Choose workspace"]').click()
+  await page.locator('[role="menu"] [role="menuitem"], [role="menu"] button').filter({ hasText: 'smoke-claude' }).first().click()
+  await page.waitForTimeout(400)
+  await area.fill('Use the Edit tool to replace the word beta with BETA in ui-edit.txt. Then reply exactly EDIT_DONE.')
+  await send.click()
+  const allowButtons = page.locator('[class*="dag-approval"][role="alertdialog"]').getByRole('button', { name: /^(Allow|允许)$/ })
+  for (let i = 0; i < 40; i++) {
+    if (await page.locator('[class*="dag-assistantRow"]').filter({ hasText: 'EDIT_DONE' }).count() > 0 && await page.locator('[class*="dag-statusLive"]').count() === 0) break
+    if (await allowButtons.count() > 0) await allowButtons.last().click().catch(() => {})
+    await page.waitForTimeout(1000)
+  }
+  const rowKey = await page.locator('[data-row-key^="agent:claude:"][aria-selected="true"]').getAttribute('data-row-key')
+  await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
+  await page.waitForTimeout(600)
+  await page.evaluate(k => { document.querySelector(`[data-row-key="${k}"]`).click() }, rowKey)
+  await page.waitForFunction(() => [...document.querySelectorAll('[class*="dag-assistantRow"]')].some(n => /EDIT_DONE/.test(n.textContent)), null, { timeout: 30_000 })
+  const editRows = page.locator('[class*="dag-disclosure"]').filter({ has: page.locator('[class*="title"]', { hasText: 'ui-edit.txt' }) })
+  await editRows.first().waitFor({ timeout: 10_000 })
+  const n = await editRows.count()
+  for (let i = 0; i < n; i++) await editRows.nth(i).locator('[class*="title"]').first().click().catch(() => {})
+  await page.waitForTimeout(500)
+  const diff = await page.evaluate(() => [...document.querySelectorAll('[class*="dag-disclosure"]')]
+    .filter(r => /ui-edit\.txt/.test(r.querySelector('[class*="title"]')?.textContent ?? ''))
+    .some(r => /BETA/.test(r.textContent ?? '') && /beta/.test(r.textContent ?? '')))
+  if (!diff) throw new Error('Edit lost its diff after reattach')
+  await shot('ui-06p-edit-diff')
+})
+
 await step('switch-codex', async () => {
   await pickWorkspace('Codex 工作区|Codex workspace')
   await page.waitForTimeout(2500)

@@ -42,6 +42,29 @@ test('a streaming turn keeps one buffered entry per id and replays only the late
   }
 })
 
+test('a tool_use and its tool_result merge into one entry keeping name/input/output', async () => {
+  const turns = new TurnManager({ retentionMs: 60_000 })
+  try {
+    const { turnId } = await turns.start({
+      id: 'fake3',
+      startTurn(request, sink) {
+        sink.emit({ id: 'toolu_1', type: 'tool', name: 'Edit', input: { file_path: '/a.c', old_string: 'x', new_string: 'y' }, status: 'running' })
+        sink.emit({ id: 'toolu_1', type: 'tool', output: 'The file /a.c has been updated successfully.', status: 'done' })
+        return { dispose() {}, cancel() {} }
+      },
+    }, { cwd: '/tmp', text: 'hi' })
+    const events = turns.poll(turnId, 0).events
+    const tool = events.filter(event => event.id === 'toolu_1')
+    assert.equal(tool.length, 1)
+    assert.equal(tool[0].name, 'Edit')
+    assert.equal(tool[0].input.file_path, '/a.c')
+    assert.equal(tool[0].output, 'The file /a.c has been updated successfully.')
+    assert.equal(tool[0].status, 'done')
+  } finally {
+    turns.dispose()
+  }
+})
+
 test('approval status still tracks the latest buffered event', async () => {
   const turns = new TurnManager({ retentionMs: 60_000 })
   try {

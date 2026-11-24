@@ -69,7 +69,11 @@ export class TurnManager {
     const push = event => {
       turn.seq += 1
       const normalized = { ...event, seq: turn.seq, id: event.id ?? `${id}:${turn.seq}`, ts: event.ts ?? Date.now() }
-      turn.items.set(normalized.id, normalized)
+      // Same id carries complementary fields across emissions (a tool_use's
+      // name/input then its tool_result's output; streaming text grows), so
+      // merge rather than replace or a reattach loses the earlier fields.
+      const previous = turn.items.get(normalized.id)
+      turn.items.set(normalized.id, previous === undefined ? normalized : { ...previous, ...normalized })
       const blocking = e => (e.type === 'approval' || e.type === 'question') && e.status === 'running'
       if (blocking(normalized)) turn.status = 'awaiting'
       else if (turn.status === 'awaiting' && ![...turn.items.values()].some(blocking)) turn.status = 'running'
