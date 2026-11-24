@@ -54,7 +54,9 @@ export class TurnManager {
       providerId: provider.id,
       sessionId: request.sessionId,
       status: 'starting',
-      events: [],
+      // Keyed by event id: streaming partials re-emit the same id with growing
+      // text, so keeping every emission would grow a long turn quadratically.
+      items: new Map(),
       seq: 0,
       error: undefined,
       usage: undefined,
@@ -67,10 +69,10 @@ export class TurnManager {
     const push = event => {
       turn.seq += 1
       const normalized = { ...event, seq: turn.seq, id: event.id ?? `${id}:${turn.seq}`, ts: event.ts ?? Date.now() }
-      turn.events.push(normalized)
+      turn.items.set(normalized.id, normalized)
       const blocking = e => (e.type === 'approval' || e.type === 'question') && e.status === 'running'
       if (blocking(normalized)) turn.status = 'awaiting'
-      else if (turn.status === 'awaiting' && !turn.events.some(blocking)) turn.status = 'running'
+      else if (turn.status === 'awaiting' && ![...turn.items.values()].some(blocking)) turn.status = 'running'
       return normalized
     }
     turn.push = push
@@ -107,7 +109,7 @@ export class TurnManager {
     turn.lastPoll = Date.now()
     const after = Number.isFinite(afterSeq) ? afterSeq : 0
     return {
-      events: turn.events.filter(event => event.seq > after),
+      events: [...turn.items.values()].filter(event => event.seq > after).sort((a, b) => a.seq - b.seq),
       status: turn.status,
       sessionId: turn.sessionId,
       error: turn.error,
@@ -148,7 +150,7 @@ export class TurnManager {
    */
   answer(turnId, requestId, decision) {
     const turn = this.#require(turnId)
-    const approval = turn.events.find(event => event.type === 'approval' && event.requestId === requestId)
+    const approval = [...turn.items.values()].find(event => event.type === 'approval' && event.requestId === requestId)
     if (approval === undefined) throw new Error('agent-cli: unknown approval request')
     if (approval.status !== 'running') return { ok: true }
     turn.handle?.answer(requestId, decision)
@@ -165,7 +167,7 @@ export class TurnManager {
    */
   answerQuestion(turnId, requestId, answers) {
     const turn = this.#require(turnId)
-    const question = turn.events.find(event => event.type === 'question' && event.requestId === requestId)
+    const question = [...turn.items.values()].find(event => event.type === 'question' && event.requestId === requestId)
     if (question === undefined) throw new Error('agent-cli: unknown question request')
     if (question.status !== 'running') return { ok: true }
     turn.handle?.answerQuestion?.(requestId, answers)
