@@ -17,14 +17,14 @@ test('history before the live turn is kept and the turn replays from its start',
   assert.equal(window.fromSeq, 0)
 })
 
-test('a tail window inside the live turn is shown, not discarded, and not replayed', () => {
+test('a tail window inside the live turn is left to the poll, which replays it live', () => {
   const tail = [at(2000), at(2500), at(3000)]
   const window = selectOpenWindow(tail, { turnId: 't', seq: 3, startedAt: 1000 })
-  assert.deepEqual(window.events, tail)
-  assert.equal(window.fromSeq, 3)
+  assert.deepEqual(window.events, [])
+  assert.equal(window.fromSeq, 0)
 })
 
-test('an active entry without a start still shows the disk window', () => {
+test('an active entry the host cannot stream is shown from disk', () => {
   const events = [at(1000), at(2000)]
   const window = selectOpenWindow(events, { sessionId: 's', status: 'running' })
   assert.deepEqual(window.events, events)

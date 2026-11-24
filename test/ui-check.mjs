@@ -875,6 +875,32 @@ if (!skipTurns) await step('subagent-chips', async () => {
   await shot('ui-06m-subagent-settled')
 })
 
+if (!skipTurns) await step('live-switch', async () => {
+  const area = page.locator('[class*="dag-textarea"]')
+  const send = page.locator('button[aria-label="Send"], button[aria-label="发送"]')
+  await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
+  await page.waitForTimeout(600)
+  await page.locator('button[aria-label="选择工作区"], button[aria-label="Choose workspace"]').click()
+  await page.locator('[role="menu"] [role="menuitem"], [role="menu"] button').filter({ hasText: 'smoke-claude' }).first().click()
+  await page.waitForTimeout(400)
+  await area.fill('Run the Bash tool with the command `sleep 25; echo SWITCH_DONE` in the foreground (timeout: 60000, do NOT use run_in_background). After it finishes, reply exactly SWITCH_DONE.')
+  await send.click()
+  const allowButtons = page.locator('[class*="dag-approval"][role="alertdialog"]').getByRole('button', { name: /^(Allow|允许)$/ })
+  for (let i = 0; i < 20; i++) {
+    if (await page.locator('[class*="dag-statusLive"]').count() > 0) break
+    if (await allowButtons.count() > 0) await allowButtons.last().click().catch(() => {})
+    await page.waitForTimeout(1000)
+  }
+  await page.locator('[class*="dag-statusLive"]').waitFor({ timeout: 15_000 })
+  const rowKey = await page.locator('[data-row-key^="agent:claude:"][aria-selected="true"]').getAttribute('data-row-key')
+  await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
+  await page.waitForTimeout(600)
+  await page.evaluate(k => { document.querySelector(`[data-row-key="${k}"]`).click() }, rowKey)
+  await page.locator('[class*="dag-statusLive"]').waitFor({ timeout: 10_000 })
+  await page.waitForFunction(() => /SWITCH_DONE/.test(document.querySelector('[class*="dag-transcript"]')?.textContent ?? ''), null, { timeout: 90_000 })
+  await shot('ui-06n-live-switch')
+})
+
 await step('switch-codex', async () => {
   await pickWorkspace('Codex 工作区|Codex workspace')
   await page.waitForTimeout(2500)
