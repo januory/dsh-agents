@@ -126,13 +126,13 @@ await step('turn-fold', async () => {
   const header = page.locator('[class*="dag-turnProcess"]').first()
   await header.waitFor({ timeout: 10_000 })
   const before = await header.getAttribute('aria-expanded')
-  const toolsBefore = await page.locator('[class*="dag-toolRow"]').count()
+  const rowsBefore = await page.locator('[class*="dag-disclosure"]').count()
   await header.click()
   await page.waitForTimeout(400)
   const after = await header.getAttribute('aria-expanded')
-  const toolsAfter = await page.locator('[class*="dag-toolRow"]').count()
+  const rowsAfter = await page.locator('[class*="dag-disclosure"]').count()
   if (before === after) throw new Error('turn process header did not toggle')
-  if (after === 'true' && toolsAfter <= toolsBefore) throw new Error('expanding a folded turn revealed no process rows')
+  if (after === 'true' && rowsAfter <= rowsBefore) throw new Error('expanding a folded turn revealed no process rows')
   await header.click()
   await page.waitForTimeout(300)
   await shot('ui-03c-turn-fold')
@@ -899,6 +899,35 @@ if (!skipTurns) await step('live-switch', async () => {
   await page.locator('[class*="dag-statusLive"]').waitFor({ timeout: 10_000 })
   await page.waitForFunction(() => /SWITCH_DONE/.test(document.querySelector('[class*="dag-transcript"]')?.textContent ?? ''), null, { timeout: 90_000 })
   await shot('ui-06n-live-switch')
+})
+
+if (!skipTurns) await step('reply-order', async () => {
+  const area = page.locator('[class*="dag-textarea"]')
+  const send = page.locator('button[aria-label="Send"], button[aria-label="发送"]')
+  await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
+  await page.waitForTimeout(600)
+  await page.locator('button[aria-label="选择工作区"], button[aria-label="Choose workspace"]').click()
+  await page.locator('[role="menu"] [role="menuitem"], [role="menu"] button').filter({ hasText: 'smoke-claude' }).first().click()
+  await page.waitForTimeout(400)
+  await area.fill('First reply with exactly ORDER_ALPHA. Then use the Bash tool to run `echo order_mid`. After the tool returns, reply with exactly ORDER_OMEGA. Keep the two replies as separate messages before and after the tool call.')
+  await send.click()
+  const allowButtons = page.locator('[class*="dag-approval"][role="alertdialog"]').getByRole('button', { name: /^(Allow|允许)$/ })
+  const assistantHas = word => page.locator('[class*="dag-assistantRow"]').filter({ hasText: word }).count()
+  for (let i = 0; i < 60; i++) {
+    if (await assistantHas('ORDER_OMEGA') > 0 && await page.locator('[class*="dag-statusLive"]').count() === 0) break
+    if (await allowButtons.count() > 0) await allowButtons.last().click().catch(() => {})
+    await page.waitForTimeout(1000)
+  }
+  await page.waitForFunction(() => [...document.querySelectorAll('[class*="dag-assistantRow"]')].some(n => /ORDER_OMEGA/.test(n.textContent)), null, { timeout: 60_000 })
+  const order = await page.evaluate(() => {
+    const nodes = [...document.querySelectorAll('[class*="dag-transcript"] [class*="dag-assistantRow"], [class*="dag-transcript"] [class*="dag-toolRow"]')]
+    const alpha = nodes.findIndex(n => /ORDER_ALPHA/.test(n.textContent))
+    const tool = nodes.findIndex(n => /order_mid/.test(n.textContent))
+    const omega = nodes.findIndex(n => /ORDER_OMEGA/.test(n.textContent))
+    return { alpha, tool, omega, count: nodes.length }
+  })
+  if (!(order.alpha >= 0 && order.tool > order.alpha && order.omega > order.tool)) throw new Error(`reply not interleaved with the tool in time order: ${JSON.stringify(order)}`)
+  await shot('ui-06o-reply-order')
 })
 
 await step('switch-codex', async () => {

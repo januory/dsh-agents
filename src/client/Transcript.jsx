@@ -7,6 +7,7 @@ import { cx } from './cx.js'
 import { SourceIcon, sourceColor } from './SourceIcon.jsx'
 import { basename, jsonLabels, markdownLabels, runDuration, taskStatusLabel, terminalLabels } from './labels.js'
 import { attachmentUrl } from './uploads.js'
+import { groupTurns } from './transcript-groups.js'
 import css from './Transcript.module.css'
 
 const TOOL_ICONS = {
@@ -352,22 +353,9 @@ function flowKind(event) {
   return event.type
 }
 
-// dsh groups a Turn as opening input + foldable process + assistant response.
-function groupTurns(events) {
-  const turns = []
-  let current = { id: 'lead', user: undefined, process: [], response: [] }
-  turns.push(current)
-  for (const event of events) {
-    if (event.type === 'user') {
-      current = { id: event.id, user: event, process: [], response: [] }
-      turns.push(current)
-    } else if (event.type === 'assistant') current.response.push(event)
-    else if (event.type === 'turn' && event.reason !== 'compact') continue
-    else current.process.push(event)
-  }
-  return turns.filter(turn => turn.user !== undefined || turn.process.length > 0 || turn.response.length > 0)
-}
-
+// dsh walks a Turn in order: a run of process rows (thinking/tools) folds as a
+// group, an assistant reply flushes that group and stands in its own place, so
+// replies keep their chronological position instead of clumping at the end.
 function TurnProcessHeader({ open, duration, t, onToggle }) {
   return (
     <button type="button" className={css.turnProcess} data-open={open || undefined} aria-expanded={open} onClick={onToggle}>
@@ -390,21 +378,26 @@ export function Transcript({ events, limit, t, tasks, live, onAnswer, onQuestion
     const isLast = i === turns.length - 1
     const turnLive = isLast && live === true
     if (turn.user !== undefined) rows.push(item(turn.user))
-    const hasProcess = turn.process.length > 0
-    // dsh: the latest turn stays open until the next input; older turns fold.
-    // A live turn never folds and shows no header.
-    const open = turnLive || (manual[turn.id] ?? isLast)
-    if (!turnLive && hasProcess) {
-      const times = [turn.user, ...turn.process, ...turn.response].filter(e => e !== undefined).map(e => e.ts)
-      const duration = runDuration(Math.max(1000, Math.max(...times) - Math.min(...times)), t)
-      rows.push(
-        <div key={`${turn.id}:process`} className={css.flowItem} data-dag-flow="turnprocess">
-          <TurnProcessHeader open={open} duration={duration} t={t} onToggle={() => setManual(prev => ({ ...prev, [turn.id]: !open }))} />
-        </div>,
-      )
-    }
-    if (open || turnLive) for (const event of turn.process) rows.push(item(event))
-    for (const event of turn.response) rows.push(item(event))
+    turn.segments.forEach((segment, si) => {
+      if (segment.kind === 'response') {
+        for (const event of segment.events) rows.push(item(event))
+        return
+      }
+      // dsh: the latest turn stays open until the next input; older turns fold.
+      // A live turn never folds and shows no header.
+      const key = `${turn.id}:${si}`
+      const open = turnLive || (manual[key] ?? isLast)
+      if (!turnLive) {
+        const times = segment.events.map(e => e.ts)
+        const duration = runDuration(Math.max(1000, Math.max(...times) - Math.min(...times)), t)
+        rows.push(
+          <div key={key} className={css.flowItem} data-dag-flow="turnprocess">
+            <TurnProcessHeader open={open} duration={duration} t={t} onToggle={() => setManual(prev => ({ ...prev, [key]: !open }))} />
+          </div>,
+        )
+      }
+      if (open || turnLive) for (const event of segment.events) rows.push(item(event))
+    })
   })
   return (
     <div className={css.transcript}>
