@@ -122,6 +122,22 @@ await step('open-transcript', async () => {
   console.log('  transcript items rendered:', await page.locator('[class*="dag-transcript"] > *').count())
 })
 
+await step('turn-fold', async () => {
+  const header = page.locator('[class*="dag-turnProcess"]').first()
+  await header.waitFor({ timeout: 10_000 })
+  const before = await header.getAttribute('aria-expanded')
+  const toolsBefore = await page.locator('[class*="dag-toolRow"]').count()
+  await header.click()
+  await page.waitForTimeout(400)
+  const after = await header.getAttribute('aria-expanded')
+  const toolsAfter = await page.locator('[class*="dag-toolRow"]').count()
+  if (before === after) throw new Error('turn process header did not toggle')
+  if (after === 'true' && toolsAfter <= toolsBefore) throw new Error('expanding a folded turn revealed no process rows')
+  await header.click()
+  await page.waitForTimeout(300)
+  await shot('ui-03c-turn-fold')
+})
+
 await step('expand-tool', async () => {
   const tool = page.locator('[class*="dag-toolRow"]').first()
   if (await tool.count() > 0) {
@@ -769,6 +785,7 @@ if (!skipTurns) await step('background-task', async () => {
   await page.locator('[data-slot="sidebar.session.action"] button[aria-label="新建会话"], [data-slot="sidebar.session.action"] button[aria-label="New session"]').first().click()
   await page.waitForTimeout(800)
   await page.evaluate(k => { document.querySelector(`[data-row-key="${k}"]`).click() }, rowKey)
+  await page.waitForFunction(() => /STARTED/.test(document.querySelector('[class*="dag-transcript"]')?.textContent ?? ''), null, { timeout: 10_000 })
   await ensurePanel()
   if (!/已结束|Finished/.test(await panel.textContent())) throw new Error('completion record lost after reopening the session')
   await openSettled()
@@ -1102,6 +1119,7 @@ await step('header-mobile', async () => {
       headingH: heading ? Math.round(heading.getBoundingClientRect().height) : null,
       tagSameRow: tr && gr ? Math.abs((tr.top + tr.bottom) / 2 - (gr.top + gr.bottom) / 2) <= 2 : true,
       openerSameRow: tr && or ? Math.abs((tr.top + tr.bottom) / 2 - (or.top + or.bottom) / 2) <= 6 : true,
+      seatW: (() => { const s = document.querySelector('[class*="dag-composerSeat"]'); return s ? Math.round(s.getBoundingClientRect().width) : null })(),
     }
   })
   await shot('ui-10g-header-mobile')
@@ -1114,6 +1132,7 @@ await step('header-mobile', async () => {
   if (!m.openerSameRow) throw new Error(`sidebar opener not on the header row on mobile: ${JSON.stringify(m)}`)
   if (m.sw > m.cw + 1) throw new Error(`header overflows on mobile: ${JSON.stringify(m)}`)
   if (m.right !== null && m.right > m.vw) throw new Error(`header corner off-screen on mobile: ${JSON.stringify(m)}`)
+  if (m.seatW !== null && m.seatW < m.vw - 16) throw new Error(`composer seat narrowed on mobile: ${JSON.stringify(m)}`)
 })
 
 await step('meter-mobile', async () => {

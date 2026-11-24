@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import {
-  Button, CodeBlock, DisclosureRow, IconCheckOutlineMedium, IconCloseOutlineMedium, IconCodeOutlineMedium, IconEditOutlineMedium, IconFilesDiffOutlineMedium,
+  Button, CodeBlock, DisclosureRow, IconCheckOutlineMedium, IconChevronDownOutlineRegular, IconCloseOutlineMedium, IconCodeOutlineMedium, IconEditOutlineMedium, IconFilesDiffOutlineMedium,
   IconGlobeOutlineMedium, IconSearchOutlineMedium, IconThinkOutlineMedium, IconWarningOutlineMedium, ImageLightbox, JsonTree, MarkdownText, StateDot, Tag, TerminalBlock, TextShimmer, UserMessageBubble,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
@@ -114,13 +114,15 @@ const UserItem = memo(function UserItem({ event, t }) {
   const images = event.images ?? []
   return (
     <div className={css.userRow}>
-      {images.length > 0 && (
-        <div className={css.userImages}>
-          {images.map(image => <UserImage key={image.id} id={image.id} single={images.length === 1} t={t} />)}
-        </div>
-      )}
-      {event.imageCount > 0 && <div className={css.userImages}><Tag tone="quiet">{t('image.count', { n: event.imageCount })}</Tag></div>}
-      {(event.text ?? '') !== '' && <UserMessageBubble className={css.userBubble}>{event.text}</UserMessageBubble>}
+      <div className={css.userStack}>
+        {images.length > 0 && (
+          <div className={css.userImages}>
+            {images.map(image => <UserImage key={image.id} id={image.id} single={images.length === 1} t={t} />)}
+          </div>
+        )}
+        {event.imageCount > 0 && <div className={css.userImages}><Tag tone="quiet">{t('image.count', { n: event.imageCount })}</Tag></div>}
+        {(event.text ?? '') !== '' && <UserMessageBubble className={css.userBubble}>{event.text}</UserMessageBubble>}
+      </div>
     </div>
   )
 })
@@ -345,15 +347,69 @@ export function TranscriptItem({ event, t, task, onAnswer, onQuestion }) {
   }
 }
 
-export function Transcript({ events, limit, t, tasks, onAnswer, onQuestion, onEarlier }) {
+function flowKind(event) {
+  if (event.type === 'turn') return 'compact'
+  return event.type
+}
+
+// dsh groups a Turn as opening input + foldable process + assistant response.
+function groupTurns(events) {
+  const turns = []
+  let current = { id: 'lead', user: undefined, process: [], response: [] }
+  turns.push(current)
+  for (const event of events) {
+    if (event.type === 'user') {
+      current = { id: event.id, user: event, process: [], response: [] }
+      turns.push(current)
+    } else if (event.type === 'assistant') current.response.push(event)
+    else if (event.type === 'turn' && event.reason !== 'compact') continue
+    else current.process.push(event)
+  }
+  return turns.filter(turn => turn.user !== undefined || turn.process.length > 0 || turn.response.length > 0)
+}
+
+function TurnProcessHeader({ open, duration, t, onToggle }) {
+  return (
+    <button type="button" className={css.turnProcess} data-open={open || undefined} aria-expanded={open} onClick={onToggle}>
+      <span className={css.turnProcessLabel}>{t('turn.took', { duration })}</span>
+      <IconChevronDownOutlineRegular className={css.turnProcessChevron} />
+    </button>
+  )
+}
+
+export function Transcript({ events, limit, t, tasks, live, onAnswer, onQuestion, onEarlier }) {
   const start = Math.max(0, events.length - limit)
   const shown = events.slice(start)
   const byTool = new Map()
   for (const task of tasks ?? []) if (task.toolUseId !== undefined) byTool.set(task.toolUseId, task)
+  const [manual, setManual] = useState({})
+  const turns = groupTurns(shown)
+  const rows = []
+  const item = event => <div key={event.id} className={css.flowItem} data-dag-flow={flowKind(event)}><TranscriptItem event={event} t={t} task={byTool.get(event.id)} onAnswer={onAnswer} onQuestion={onQuestion} /></div>
+  turns.forEach((turn, i) => {
+    const isLast = i === turns.length - 1
+    const turnLive = isLast && live === true
+    if (turn.user !== undefined) rows.push(item(turn.user))
+    const hasProcess = turn.process.length > 0
+    // dsh: the latest turn stays open until the next input; older turns fold.
+    // A live turn never folds and shows no header.
+    const open = turnLive || (manual[turn.id] ?? isLast)
+    if (!turnLive && hasProcess) {
+      const times = [turn.user, ...turn.process, ...turn.response].filter(e => e !== undefined).map(e => e.ts)
+      const duration = runDuration(Math.max(1000, Math.max(...times) - Math.min(...times)), t)
+      rows.push(
+        <div key={`${turn.id}:process`} className={css.flowItem} data-dag-flow="turnprocess">
+          <TurnProcessHeader open={open} duration={duration} t={t} onToggle={() => setManual(prev => ({ ...prev, [turn.id]: !open }))} />
+        </div>,
+      )
+    }
+    if (open || turnLive) for (const event of turn.process) rows.push(item(event))
+    for (const event of turn.response) rows.push(item(event))
+  })
   return (
     <div className={css.transcript}>
       {start > 0 && <button type="button" className={css.earlier} onClick={onEarlier}>{t('page.earlier', { n: Math.min(start, 300) })}</button>}
-      {shown.map(event => <TranscriptItem key={event.id} event={event} t={t} task={byTool.get(event.id)} onAnswer={onAnswer} onQuestion={onQuestion} />)}
+      {rows}
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { IconFlatListOutlineRegular, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutlineRegular, IconFlatListOutlineRegular, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx } from './cx.js'
 import { SourceIcon } from './SourceIcon.jsx'
 import { Composer } from './Composer.jsx'
@@ -51,6 +51,7 @@ export function ConversationPage(props) {
   const last = transcript.events[transcript.events.length - 1]
   const scrollRef = useStickToBottom(`${transcript.key}:${transcript.events.length}:${last?.text?.length ?? 0}:${last?.output?.length ?? 0}`)
   const [overlay, setOverlay] = useState(null)
+  const [atTail, setAtTail] = useState(true)
   const conversationRef = useRef(null)
   const seatRef = useRef(null)
   const panelRef = useRef(null)
@@ -201,7 +202,14 @@ export function ConversationPage(props) {
       </header>
       <div className={css.frame}>
         <div className={css.conversation} ref={conversationRef}>
-          <div className={css.body} ref={scrollRef}>
+          <div
+            className={css.body}
+            ref={scrollRef}
+            onScroll={e => {
+              const el = e.currentTarget
+              setAtTail(el.scrollHeight - el.scrollTop - el.clientHeight < (seatRef.current?.offsetHeight ?? 0) + 48)
+            }}
+          >
             {blank ? (
               <div className={css.hero}>
                 <SourceIcon source={source} size={28} />
@@ -221,7 +229,7 @@ export function ConversationPage(props) {
                       ) : (
                         <>
                           {session?.hasEarlier && <div className={css.truncated}>{t('page.truncated')}</div>}
-                          <Transcript events={transcript.events} limit={transcript.historyLimit} t={t} tasks={transcript.tasks ?? []} onAnswer={answer} onQuestion={answerQuestion} onEarlier={showEarlier} />
+                          <Transcript events={transcript.events} limit={transcript.historyLimit} t={t} tasks={transcript.tasks ?? []} live={transcript.turn !== null && isLive(transcript.turn.status)} onAnswer={answer} onQuestion={answerQuestion} onEarlier={showEarlier} />
                         </>
                       )}
                   {transcript.turn !== null && transcript.turn.status !== 'done' && (
@@ -232,6 +240,21 @@ export function ConversationPage(props) {
                   {sendError !== undefined && !transcript.loading && <div className={css.sendError} role="alert">{sendError}</div>}
                   {composer}
                 </div>
+                {!atTail && (
+                  <button
+                    type="button"
+                    className={css.toBottom}
+                    style={{ bottom: (seatRef.current?.offsetHeight ?? 120) + 16 }}
+                    aria-label={t('page.toBottom')}
+                    onClick={() => {
+                      const el = scrollRef.current
+                      if (el !== null) el.scrollTop = el.scrollHeight
+                      setAtTail(true)
+                    }}
+                  >
+                    <IconChevronDownOutlineRegular size={16} />
+                  </button>
+                )}
               </>
             )}
           </div>

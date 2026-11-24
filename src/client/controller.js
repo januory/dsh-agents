@@ -1,6 +1,7 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { unwrap } from '../remote.js'
 import { createSidebarStore } from './sidebarStore.js'
+import { selectOpenWindow } from './transcript-window.js'
 
 const TURN_POLL_MS = 250
 const APPROVAL_POLL_MS = 600
@@ -330,7 +331,7 @@ export class AgentCliController {
       return
     }
     const active = Array.isArray(answer.activeTurns) ? answer.activeTurns[0] : undefined
-    const events = active === undefined ? answer.events : answer.events.filter(event => event.ts < active.startedAt)
+    const { events, fromSeq } = selectOpenWindow(answer.events, active)
     this.transcript.update(d => {
       d.loading = false
       d.session = answer.session
@@ -339,7 +340,7 @@ export class AgentCliController {
       d.tasks = Array.isArray(answer.tasks) ? answer.tasks : []
       d.usage = answer.usage ?? null
     })
-    if (active !== undefined) this.#attach(active.turnId, 0, active.startedAt)
+    if (active?.turnId !== undefined) this.#attach(active.turnId, fromSeq, active.startedAt)
     this.#ensureTaskWatch()
   }
 

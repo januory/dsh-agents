@@ -229,12 +229,46 @@
   scrollbar-gutter: stable;
 }
 
+/* dsh ChatView toBottom: floating return-to-tail control, hidden at the tail. */
+.toBottom {
+  position: sticky;
+  bottom: 16px;
+  align-self: flex-end;
+  margin-right: max(calc(var(--dag-composer-side-clearance, 16px) + 16px), calc((100% - var(--dag-content-width, 880px)) / 2));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-top: -34px;
+  padding: 0;
+  border: 0;
+  border-radius: 100px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-button-floating-fill);
+  box-shadow: var(--dsw-elevation-panel);
+  cursor: pointer;
+  z-index: 8;
+}
+
+@media (hover: hover) {
+  .toBottom:hover {
+    background: var(--dsw-alias-button-floating-hover);
+  }
+}
+
 .view {
   flex: 1 0 auto;
   min-height: auto;
   display: flex;
   flex-direction: column;
   padding-bottom: 16px;
+  /* dsh ChatView scroll: sides = composer clearance + 16px so the transcript
+     stays 32px narrower than the input card; the composer seat is a sibling
+     and keeps the full width. Inline-size container lets wide markdown tables
+     breakout against this box's content width. */
+  padding-inline: calc(var(--dag-composer-side-clearance, 16px) + 16px);
+  container-type: inline-size;
 }
 
 .composerSeat {
@@ -319,9 +353,8 @@
 .statusRow {
   position: relative;
   width: 100%;
-  max-width: calc(var(--dag-content-width, 880px) + 64px);
+  max-width: var(--dag-content-width, 880px);
   margin: 12px auto 0;
-  padding: 0 32px;
   box-sizing: border-box;
 }
 
@@ -329,8 +362,8 @@
   content: '';
   position: absolute;
   top: -4px;
-  left: 32px;
-  right: 32px;
+  left: 0;
+  right: 0;
   height: 0.5px;
   background: color-mix(in srgb, var(--dsw-alias-border-l1) 75%, var(--dsw-alias-border-l2));
   pointer-events: none;

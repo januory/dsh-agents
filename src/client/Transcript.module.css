@@ -1,15 +1,99 @@
 .transcript {
   display: flex;
   flex-direction: column;
-  gap: 14px;
   width: 100%;
-  max-width: calc(var(--dag-content-width, 880px) + 64px);
+  max-width: var(--dag-content-width, 880px);
   margin: 0 auto;
-  padding: 16px 32px 0;
+  padding: 16px 0 0;
   box-sizing: border-box;
   color: var(--dsw-alias-label-primary);
   font-size: var(--dsh-content-font-size, 14px);
   line-height: calc(22px + var(--dsh-content-font-delta, 0px));
+}
+
+/* dsh ChatView flow rhythm: process rows 4px apart, an assistant response
+   separated by 12px, turn boundaries (user input / compaction) by 16px. */
+.flowItem {
+  min-width: 0;
+}
+
+.flowItem + .flowItem {
+  margin-top: var(--dag-flow-gap, 4px);
+}
+
+.flowItem[data-dag-flow='assistant'] {
+  --dag-flow-gap: 12px;
+}
+
+.flowItem[data-dag-flow='assistant'] + .flowItem {
+  --dag-flow-gap: 12px;
+}
+
+.flowItem[data-dag-flow='user'],
+.flowItem[data-dag-flow='compact'] {
+  --dag-flow-gap: 16px;
+}
+
+.flowItem[data-dag-flow='user'] + .flowItem,
+.flowItem[data-dag-flow='compact'] + .flowItem {
+  --dag-flow-gap: 16px;
+}
+
+.flowItem[data-dag-flow='turnprocess'] {
+  --dag-flow-gap: 16px;
+}
+
+.flowItem[data-dag-flow='turnprocess'] + .flowItem {
+  --dag-flow-gap: 16px;
+}
+
+/* dsh TurnProcessNodeView: settled-Turn duration disclosure above its content. */
+.turnProcess {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  height: calc(33px + var(--dsh-content-font-delta, 0px));
+  padding: 0 0 8px;
+  border: none;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  background: none;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: var(--dsh-content-font-size, 14px);
+  cursor: pointer;
+  text-align: left;
+  transition: color 100ms ease;
+}
+
+@media (hover: hover) {
+  .turnProcess:hover {
+    color: var(--dsw-alias-label-secondary);
+  }
+}
+
+.turnProcessLabel {
+  min-width: 0;
+  overflow: hidden;
+  font-size: inherit;
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.turnProcessChevron {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  color: inherit;
+  transition: transform 100ms ease;
+}
+
+.turnProcess[data-open] .turnProcessChevron {
+  transform: rotate(180deg);
 }
 
 .earlier {
@@ -28,11 +112,22 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  gap: 6px;
+}
+
+/* dsh MessageItem userStack: the figma 525px cap as a share of the width axis
+   (525/748 ≈ 0.702), widening with the column, capped at 82%. */
+.userStack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
+  min-width: 0;
+  max-width: min(calc(var(--dag-content-width, 748px) * 0.702), 82%);
 }
 
 .userBubble {
-  max-width: 85%;
+  max-width: 100%;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -383,6 +478,7 @@
 }
 
 .status {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -392,6 +488,7 @@
   font-size: calc(var(--dsh-content-font-size, 14px) - 2px);
   line-height: calc(22px + var(--dsh-content-font-delta, 0px));
 }
+
 
 .statusLive {
   color: var(--dag-status-color);
